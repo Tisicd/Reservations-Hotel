@@ -121,7 +121,7 @@ services/reservation/
 - Propagación de `X-Request-ID`; logs JSON con `request_id`, `reservation_id`, `service`.
 
 ## 9. Configuración
-Variables de entorno por servicio, con soporte `*_FILE` para secretos (contraseñas de BD). `.env.example` versionado, `.env` ignorado. Tabla de variables en `docs/variables.md` (se completa en F1).
+Variables de entorno por servicio, con soporte `*_FILE` para secretos (contraseñas de BD). `.env.example` versionado, `.env` ignorado. Tabla de variables en `docs/variables.md`.
 
 ## 10. Qué NO hacemos (anti sobre-ingeniería)
 Sin repositorios genéricos, Unit of Work, bus de eventos interno, CQRS, event sourcing, ORM de dominio, librería compartida, Redis, Kubernetes ni autenticación completa (JWT/OIDC se documenta como evolución). Cada adición futura requiere un ADR.

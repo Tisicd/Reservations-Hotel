@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copiar .env
+        run: cp .env.example .env
+      - name: Lint
+        run: make lint
+      - name: Up
+        run: make up
+      - name: Test
+        run: make test
+      - name: Down
+        if: always()
+        run: make down
