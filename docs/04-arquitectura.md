@@ -1,4 +1,4 @@
-# 04. Arquitectura (v0, pendiente de compuerta G0)
+# 04. Arquitectura (v1.0, G0 cerrado el 2026-10-19)
 
 Decisiones en `docs/adr/`. Negocio, invariantes y modos de fallo en `docs/fases/F0-negocio-y-resiliencia.md`.
 
@@ -26,6 +26,8 @@ Microservicios + **hexagonal ligera** donde hay lógica de negocio (ADR-0001). D
 |---|---|---|
 | Hexagonal ligera (`api`/`application`/`domain`/`infrastructure`) | availability, reservation, payment, notification | Reglas, estados e invariantes que deben probarse sin BD ni HTTP |
 | CRUD modular (`api`/`service`/`models`) | customer, hotel | Sin lógica de dominio que proteger; las capas serían ceremonia |
+
+**Fuente de verdad de datos maestros (G0, ADR-0010):** `hotel` es dueño de hoteles, habitaciones y precios; `reservation` los valida por HTTP (con timeout y error explícito) antes de persistir. `availability` solo gestiona inventario, disponibilidad y holds; no replica ni consulta datos maestros. Si la carga demuestra que esa llamada limita el rendimiento, se evaluará replicar datos de lectura de `hotel` mediante eventos, con control de antigüedad y reconciliación.
 
 ## 3. Estructura del repositorio
 ```

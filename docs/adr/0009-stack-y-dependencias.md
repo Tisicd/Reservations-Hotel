@@ -1,5 +1,5 @@
 # ADR-0009: Stack y dependencias justificadas
-**Estado:** Propuesto · **Fase:** F0
+**Estado:** Aceptado · **Fase:** F0
 
 Principio: **ninguna dependencia sin una razón medible o verificable.**
 

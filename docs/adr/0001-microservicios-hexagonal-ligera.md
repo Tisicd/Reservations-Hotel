@@ -1,5 +1,5 @@
 # ADR-0001: Microservicios con arquitectura hexagonal ligera
-**Estado:** Propuesto · **Fase:** F0
+**Estado:** Aceptado · **Fase:** F0
 
 ## Contexto
 El monolito mezcla funciones con riesgos distintos (inventario, reservas, pagos, notificaciones) y comparte recursos: una caída o un pico en una función degrada a las demás. El enunciado exige aislamiento, escalado independiente y recuperación ante fallos. Además hay 7 días, una persona y un agente de IA: la arquitectura debe ser **verificable**, no solo elegante.

@@ -1,5 +1,5 @@
 # ADR-0003: Saga orquestada + máquina de estados en `reservation`
-**Estado:** Propuesto · **Fase:** F0/F1
+**Estado:** Aceptado · **Fase:** F0/F1
 
 ## Contexto
 Una reserva toca tres servicios (`availability`, `payment`, y `customer`/`hotel` para validar). No existe una transacción distribuida: cada paso puede fallar o repetirse. El pago puede quedar en resultado **incierto**.

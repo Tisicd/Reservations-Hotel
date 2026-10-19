@@ -1,5 +1,5 @@
 # ADR-0008: Frontend mínimo en HTML + JS servido por nginx
-**Estado:** Propuesto · **Fase:** F3
+**Estado:** Aceptado · **Fase:** F3
 
 ## Contexto
 Swagger prueba APIs, pero una demo visual facilita la defensa. El valor está en mostrar el flujo y los estados, no en el diseño. Plazo: 0,5 día máximo.

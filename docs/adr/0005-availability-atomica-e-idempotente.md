@@ -1,5 +1,5 @@
 # ADR-0005: Inventario con operaciones atómicas e idempotentes
-**Estado:** Propuesto · **Fase:** F1
+**Estado:** Aceptado · **Fase:** F1
 
 ## Contexto
 El riesgo principal es la **sobreventa** por concurrencia. Además la lectura (búsqueda) y la escritura (bloqueo de cupo) tienen necesidades opuestas.

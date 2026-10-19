@@ -1,6 +1,6 @@
 # Plan del proyecto v3: Plataforma de reservas reproducible y resiliente
 > **v3:** se añaden arquitectura hexagonal ligera, frontend mínimo, entregables escritos (informe, costos, manual) y preparación de defensa. Arquitectura: `04-arquitectura.md` · ADR: `adr/` · Contratos: `05-contratos-api.md` · Negocio y fallos: `fases/F0-negocio-y-resiliencia.md`. El flujo crítico se implementa **antes** que el resto; RabbitMQ y otras herramientas dependen de resultados.
-**Hoy: dom 18 oct 2026 · Funcionando para: dom 25 oct 2026**
+**Hoy: lun 19 oct 2026 · Funcionando para: dom 25 oct 2026 · G0 cerrado: 19 oct 2026**
 
 ## 0. Tesis del proyecto
 No es "levantar 6 contenedores". Es una plataforma **reproducible, resiliente y con evidencia técnica de sus límites**:
@@ -46,7 +46,7 @@ Cliente/k6 ─► gateway (nginx :8080)  ── único puerto publicado
 | gateway → todos los servicios API | Sí | Única entrada externa |
 | reservation → customer, availability, payment | Sí | Síncrono, timeout |
 | reservation → notification | Sí (vía outbox) | Asíncrono, no bloquea |
-| availability → hotel | Opcional | Preferible datos replicados mínimos para no acoplar |
+| availability → hotel | **No** | `availability` solo gestiona inventario; `reservation` valida hoteles/habitaciones vía `hotel` |
 | Cualquier servicio → BD de otro | **No** | Cada rol solo accede a su BD |
 | Servicios → internet | No necesario | |
 

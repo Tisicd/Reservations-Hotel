@@ -1,4 +1,4 @@
-# 05. Contratos API (v0, pendiente de compuerta G0)
+# 05. Contratos API (v1.0, G0 cerrado el 2026-10-19)
 
 Los contratos son **HTTP/JSON explícitos**. FastAPI generará el OpenAPI de cada servicio; se guardará un snapshot y un test de contrato detectará cambios. Este documento es la fuente de verdad hasta entonces.
 
@@ -130,3 +130,5 @@ Tipos de evento: `reservation.confirmed`, `reservation.cancelled`.
 
 ## 9. Flujo de llamadas permitido
 `reservation → customer, hotel, availability, payment` y `reservation-worker → notification`. Ningún otro servicio llama a otro. Cualquier servicio → BD ajena: **prohibido**.
+
+`hotel` es la fuente de verdad de hoteles, habitaciones y precios (ADR-0010); `reservation` la consulta por HTTP para validar antes de persistir. `availability` gestiona exclusivamente inventario, disponibilidad y holds, y no accede a datos maestros.

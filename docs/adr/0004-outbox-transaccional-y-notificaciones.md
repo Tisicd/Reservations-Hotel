@@ -1,5 +1,5 @@
 # ADR-0004: Outbox transaccional + inbox idempotente + worker
-**Estado:** Propuesto · **Fase:** F2
+**Estado:** Aceptado · **Fase:** F2
 
 ## Contexto
 Una reserva confirmada **nunca** debe cancelarse ni retrasarse porque falle una notificación. Pero tampoco debe perderse el aviso (invariante I6).

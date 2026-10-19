@@ -1,5 +1,5 @@
 # ADR-0007: Gateway nginx: exposición pública vs. administrativa
-**Estado:** Propuesto · **Fase:** F2
+**Estado:** Aceptado · **Fase:** F2
 
 ## Decisión
 - nginx es la **única** entrada: sirve el frontend estático, enruta `/api/*`, balancea `availability` (DNS de Docker, `resolver 127.0.0.11`, `proxy_next_upstream` solo para lecturas), aplica `limit_req`, `limit_conn` y timeouts.

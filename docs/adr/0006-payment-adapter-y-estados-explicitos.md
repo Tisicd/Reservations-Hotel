@@ -1,5 +1,5 @@
 # ADR-0006: Payment: Adapter de proveedor y estados explícitos
-**Estado:** Propuesto · **Fase:** F1
+**Estado:** Aceptado · **Fase:** F1
 
 ## Contexto
 No hay pasarela real, pero hay que poder probar rechazos, errores técnicos y, sobre todo, **resultados inciertos** sin cobrar dos veces.

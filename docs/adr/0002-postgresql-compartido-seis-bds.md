@@ -1,5 +1,5 @@
 # ADR-0002: PostgreSQL compartido con 6 BDs lógicas y 6 roles
-**Estado:** Propuesto · **Fase:** F0
+**Estado:** Aceptado · **Fase:** F0
 
 ## Contexto
 Inventario, reservas y pagos necesitan transacciones ACID, restricciones de integridad (`CHECK`, `UNIQUE`) y bloqueos para controlar concurrencia. Una reserva sobrevendida o un cobro duplicado son errores de negocio, no de rendimiento.

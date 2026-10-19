@@ -1,10 +1,12 @@
-# F0: Análisis del negocio y diseño de resiliencia (v0.2, para validar)
+# F0: Análisis del negocio y diseño de resiliencia (v1.0, G0 cerrado el 2026-10-19)
 
-> **Erratas v0.2 (ver ADR-0003):** (1) se elimina el estado `RECEIVED`: es `RECEIVED` (se persiste antes de llamar y la llamada es idempotente); (2) la validación de cliente/habitación (solo lecturas) ocurre **antes** de persistir `RECEIVED`; (3) se añade `CANCELLING` para que la cancelación sea recuperable. Arquitectura en `../04-arquitectura.md`; contratos en `../05-contratos-api.md`.
+> **Erratas v0.2 (ver ADR-0003):** (1) se elimina el estado `HOLD_REQUESTED`: es `RECEIVED` (se persiste antes de llamar y la llamada es idempotente); (2) la validación de cliente/habitación (solo lecturas) ocurre **antes** de persistir `RECEIVED`; (3) se añade `CANCELLING` para que la cancelación sea recuperable. Arquitectura en `../04-arquitectura.md`; contratos en `../05-contratos-api.md`.
+
+> **G0 cerrado (2026-10-19):** supuestos de §6 confirmados y ADR 0001-0010 aceptados. `reservation` valida hoteles y habitaciones por HTTP contra `hotel`, que es la fuente de verdad (ADR-0010); `availability` gestiona exclusivamente inventario, disponibilidad y holds. Las dependencias síncronas usan timeouts y manejo explícito de errores. Evolución: replicar datos de lectura de `hotel` mediante eventos si la carga demuestra que la llamada limita el rendimiento.
 
 > **Principio de diseño:** no necesitamos que todos los componentes estén siempre disponibles. Necesitamos que los componentes críticos **preserven la integridad del negocio**, que el sistema **falle de forma controlada** y que **pueda recuperarse**. El stack responde a esto, no al revés.
 
-Este documento es la fuente de verdad para F1 en adelante. Todo lo marcado **[SUPUESTO]** debe validarse (ver sección 6).
+Este documento es la fuente de verdad para F1 en adelante. Todo lo marcado **[SUPUESTO]** quedó validado en G0 (sección 6).
 
 ---
 
@@ -120,7 +122,7 @@ Un ajuste importante respecto a la clasificación inicial: **availability se par
 | payment | su BD, proveedor simulado | `FAILED_TECHNICAL` o `UNKNOWN` según el momento del fallo |
 | notification | su BD | Eventos quedan en outbox |
 | customer / hotel | su BD | 503 |
-\* La validación de hotel/habitación puede resolverse con los datos que availability ya posee, para reducir acoplamiento (decidir en F0).
+\* **Decidido en G0 (ADR-0010):** `hotel` es la fuente de verdad de hoteles, habitaciones y precios; `reservation` la consulta por HTTP (con timeout y error explícito). `availability` solo gestiona inventario, disponibilidad y holds; no replica datos maestros. Evolución: replicar datos de lectura mediante eventos si la carga lo justifica, con control de antigüedad y reconciliación.
 
 **Punto único de fallo compartido:** el contenedor PostgreSQL. Si cae, **todos los servicios críticos caen a la vez**. Es la limitación más importante del MVP y se documenta, se prueba y se mitiga con backups; no se oculta.
 
@@ -216,7 +218,10 @@ Dentro de `payment-service` (módulo aislado) con control por configuración/end
 
 ---
 
-## 6. Supuestos de negocio a validar (con mi valor por defecto)
+## 6. Supuestos de negocio (confirmados en G0)
+
+**Estado:** confirmados el 2026-10-19. Todos se mantienen con el valor por defecto.
+
 | # | Pregunta | Supuesto por defecto |
 |---|---|---|
 | 1 | ¿Se acepta sobreventa controlada (overbooking)? | **No** |
@@ -236,9 +241,9 @@ Dentro de `payment-service` (módulo aislado) con control por configuración/end
 | **Redis** | Solo si una medición muestra que la lectura de availability es el cuello y el caché es la solución; hoy no |
 | **Circuit breaker / métricas Prometheus** | Tiempo sobrante, después de todo lo anterior |
 
-## 8. Criterio de salida de F0 (G0)
-- [ ] Diagramas 1.1–1.3 revisados y aceptados.
-- [ ] Matriz 2.1–2.3 revisada; supuestos de la sección 6 confirmados o corregidos.
-- [ ] Decisiones de la sección 3 aceptadas (esquemas SQL esbozados en F1).
-- [ ] RTO/RPO provisionales (sección 4) aceptados como hipótesis a medir.
-- [ ] Lista de invariantes I1–I7 aceptada como contrato de pruebas.
+## 8. Criterio de salida de F0 (G0) — **cerrado 2026-10-19**
+- [x] Diagramas 1.1–1.3 revisados y aceptados.
+- [x] Matriz 2.1–2.3 revisada; supuestos de la sección 6 confirmados o corregidos.
+- [x] Decisiones de la sección 3 aceptadas (esquemas SQL esbozados en F1).
+- [x] RTO/RPO provisionales (sección 4) aceptados como hipótesis a medir.
+- [x] Lista de invariantes I1–I7 aceptada como contrato de pruebas.

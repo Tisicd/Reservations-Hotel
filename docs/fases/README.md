@@ -2,7 +2,7 @@
 
 | Fase | Fechas | Alcance | Compuerta de salida | Archivo |
 |---|---|---|---|---|
-| **F0** Arquitectura, negocio y resiliencia | 18–19 oct | ADR, estructura, capas, contratos, estados, matriz de fallos, RTO/RPO | **G0** | [F0](F0-negocio-y-resiliencia.md) |
+| **F0** Arquitectura, negocio y resiliencia | 18–19 oct | ADR, estructura, capas, contratos, estados, matriz de fallos, RTO/RPO | **G0** (cerrado 19 oct) | [F0](F0-negocio-y-resiliencia.md) |
 | **F1** Flujo crítico | 19–21 oct | `availability`, `payment`, `reservation`, `customer`/`hotel` mínimos, chequeador de invariantes | Tests de concurrencia, idempotencia, pago, recuperación en verde | [F1](F1-flujo-critico.md) |
 | **F2** Integración | 21–22 oct | `notification` + outbox/relay, gateway, réplicas de lectura, healthchecks | **G1** (jue 22, mediodía): decide RabbitMQ y congela alcance | *(se crea al iniciar)* |
 | **F3** Frontend mínimo | 22 oct (timebox 4 h) | Una pantalla: buscar → reservar → resultado + línea de tiempo | Demo del flujo completo en el navegador | *(se crea al iniciar)* |
