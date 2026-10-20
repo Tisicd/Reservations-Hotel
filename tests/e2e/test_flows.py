@@ -1,8 +1,8 @@
 """E2E del flujo completo (escenarios 1-7 del cierre F1).
 
-Requiere el stack dev. `make e2e` re-siembra de forma idempotente antes de
-    ejecutar (los tests de integración truncan las BDs y borran la semilla):
-    make clean-all && make up-dev && make e2e
+`make e2e` levanta el stack dev, re-siembra de forma idempotente y ejecuta
+    los escenarios (los tests de integración truncan las BDs y borran la
+    semilla; `make test` detiene los workers para no interferir).
 
 El escenario 8 (simulación deshabilitada -> 422) se omite: el reservation-service
 trata el 422 del proveedor como error técnico reintentable, así que exigiría

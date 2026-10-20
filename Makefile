@@ -49,8 +49,9 @@ lint: deps
 	cd services/reservation && $(CURDIR)/$(LINT_IMPORTS)
 
 test: deps
-	$(COMPOSE_DEV) up -d --wait postgres availability payment
+	$(COMPOSE_DEV) up -d --wait postgres availability availability-worker payment payment-worker reservation
 	$(VENV_PY) -m pytest tests/infra
+	-$(COMPOSE_DEV) stop availability-worker payment-worker reservation-worker
 	cd services/availability && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/payment && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/customer && $(CURDIR)/$(VENV_PY) -m pytest
@@ -73,7 +74,7 @@ seed: deps
 invariants: deps
 	$(VENV_PY) tests/invariants/checker.py --grace 60
 
-e2e: deps seed
+e2e: up-dev seed
 	$(VENV_PY) -m pytest tests/e2e -q
 
 snapshot-customer: deps
