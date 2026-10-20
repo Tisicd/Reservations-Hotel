@@ -14,11 +14,14 @@ sys.path.insert(0, str(ROOT / "tests" / "invariants"))
 
 from checker import check_all  # noqa: E402
 
-RESERVATION_URL = os.getenv("RESERVATION_URL", "http://127.0.0.1:8103")
-AVAILABILITY_URL = os.getenv("AVAILABILITY_URL", "http://127.0.0.1:8101")
-PAYMENT_URL = os.getenv("PAYMENT_URL", "http://127.0.0.1:8102")
-CUSTOMER_URL = os.getenv("CUSTOMER_URL", "http://127.0.0.1:8104")
-HOTEL_URL = os.getenv("HOTEL_URL", "http://127.0.0.1:8105")
+PUBLIC_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:8088/api").rstrip("/")
+ADMIN_URL = os.getenv("GATEWAY_ADMIN_URL", "http://127.0.0.1:8081/svc").rstrip("/")
+RESERVATION_URL = os.getenv("RESERVATION_URL", PUBLIC_URL)
+AVAILABILITY_URL = os.getenv("AVAILABILITY_URL", PUBLIC_URL)
+INVENTORY_URL = os.getenv("INVENTORY_URL", f"{ADMIN_URL}/availability")
+PAYMENT_URL = os.getenv("PAYMENT_URL", f"{ADMIN_URL}/payment")
+CUSTOMER_URL = os.getenv("CUSTOMER_URL", PUBLIC_URL)
+HOTEL_URL = os.getenv("HOTEL_URL", PUBLIC_URL)
 
 
 class Stack:
@@ -52,7 +55,7 @@ class Stack:
 
     def put_inventory(self, day, total: int, room_id: str | None = None) -> None:
         response = self.client.put(
-            f"{AVAILABILITY_URL}/inventory/{room_id or self.room['id']}",
+            f"{INVENTORY_URL}/inventory/{room_id or self.room['id']}",
             json={
                 "hotel_id": self.hotel["id"],
                 "from": day.isoformat(),
@@ -125,6 +128,17 @@ class Stack:
 
     def cancel(self, reservation_id: str) -> httpx.Response:
         return self.client.post(f"{RESERVATION_URL}/reservations/{reservation_id}/cancel")
+
+    def notifications(self, reservation_id: str) -> list[dict]:
+        return self._json(
+            self.client.get(
+                f"{PUBLIC_URL}/notifications",
+                params={"reservation_id": reservation_id},
+            )
+        )
+
+    def post_notification(self, body: dict) -> httpx.Response:
+        return self.client.post(f"{ADMIN_URL}/notification/notifications", json=body)
 
 
 @pytest.fixture(scope="session")

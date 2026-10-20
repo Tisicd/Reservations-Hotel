@@ -16,7 +16,9 @@ import uuid
 
 import pytest
 
-BASE = dt.date.today() + dt.timedelta(days=1)
+# Base aleatoria por ejecucion: repetir `make e2e` no reutiliza inventario
+# ni reservas confirmadas de una corrida anterior.
+BASE = dt.date.today() + dt.timedelta(days=400 + uuid.uuid4().int % 3000)
 
 
 def _today(offset: int) -> dt.date:
