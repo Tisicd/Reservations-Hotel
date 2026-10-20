@@ -60,6 +60,23 @@ La siembra es idempotente: hoteles/habitaciones usan UUID deterministas
 (`uuid5`), el inventario se fija con `PUT` y los ids de clientes se guardan en
 `secrets/seed.json` (ignorado por Git; `make clean-all` lo borra).
 
+## Chequeador de invariantes (`tests/invariants/checker.py`)
+
+Se conecta como superusuario en modo **solo lectura** a `availability_db`,
+`reservation_db` y `payment_db` para verificar I1-I7.
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `POSTGRES_HOST` | No | `127.0.0.1` | Host de PostgreSQL para el chequeador |
+| `POSTGRES_DEV_PORT` | No | `5433` | Puerto loopback de PostgreSQL (perfil dev) |
+| `POSTGRES_USER` | No | `postgres` | Rol superusuario (lectura de las tres BDs) |
+| `POSTGRES_PASSWORD` | No | (vacío) | Contraseña; alternativa al archivo |
+| `POSTGRES_PASSWORD_FILE` | No | `secrets/postgres_password.txt` | Archivo con la contraseña (lo genera `make secrets`) |
+
+`make invariants` ejecuta el chequeador con `--grace 60` y devuelve código 1 si
+hay violaciones. Los tests de inyección (`tests/invariants/test_checker.py`)
+hacen `TRUNCATE` de las tres BDs de desarrollo antes de cada caso.
+
 ## availability-service
 
 | Variable | Obligatoria | Default | Descripción |

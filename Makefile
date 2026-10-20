@@ -1,4 +1,4 @@
-.PHONY: up down test lint clean clean-all secrets deps seed invariants e2e snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel
+.PHONY: up up-dev down test lint clean clean-all secrets deps seed invariants e2e snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel
 
 PYTHON ?= python
 VENV := .venv
@@ -22,6 +22,9 @@ deps:
 
 up: secrets
 	docker compose up -d --build --wait
+
+up-dev: secrets
+	$(COMPOSE_DEV) up -d --build --wait
 
 down:
 	docker compose down
@@ -53,6 +56,7 @@ test: deps
 	cd services/customer && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/hotel && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/reservation && $(CURDIR)/$(VENV_PY) -m pytest
+	$(VENV_PY) -m pytest tests/invariants
 
 snapshot-availability: deps
 	cd services/availability && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py

@@ -5,6 +5,7 @@ SECRETS_DIR = ROOT / "secrets"
 
 # nombre de archivo en secrets/ -> clave en .env
 MAPPING = {
+    "postgres_password.txt": "POSTGRES_PASSWORD",
     "customer_db_password.txt": "CUSTOMER_DB_PASSWORD",
     "hotel_db_password.txt": "HOTEL_DB_PASSWORD",
     "availability_db_password.txt": "AVAILABILITY_DB_PASSWORD",
