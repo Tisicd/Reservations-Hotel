@@ -192,3 +192,68 @@ def test_confirmado_y_outbox_juntos(repo, engine, monkeypatch):
 
     assert repo.get(other.id).status == PAID
     assert _count(engine, "outbox") == 1
+
+
+def _seed_outbox(engine, count: int) -> set[uuid.UUID]:
+    ids = set()
+    with engine.begin() as conn:
+        for _ in range(count):
+            outbox_id = uuid.uuid4()
+            ids.add(outbox_id)
+            conn.execute(
+                text(
+                    "INSERT INTO outbox (id, aggregate_id, type, payload, status, "
+                    "attempts, next_attempt_at) VALUES (:id, :agg, "
+                    "'reservation.confirmed', '{}'::jsonb, 'PENDING', 0, now())"
+                ),
+                {"id": outbox_id, "agg": uuid.uuid4()},
+            )
+    return ids
+
+
+def test_claim_outbox_reparte_sin_duplicados(repo, engine):
+    ids = _seed_outbox(engine, 10)
+    barrier = threading.Barrier(2)
+    claimed = []
+    lock = threading.Lock()
+
+    def worker():
+        barrier.wait()
+        for _ in range(5):
+            rows = repo.claim_outbox(2, 30)
+            with lock:
+                claimed.extend(row.id for row in rows)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert sorted(claimed) == sorted(ids)
+
+
+def test_outbox_reintento_y_entrega(repo, engine):
+    outbox_id = next(iter(_seed_outbox(engine, 1)))
+    claimed = repo.claim_outbox(10, 30)
+    assert [row.id for row in claimed] == [outbox_id]
+    assert claimed[0].attempts == 1
+
+    repo.reschedule_outbox(outbox_id, 5)
+    assert repo.claim_outbox(10, 30) == []
+
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE outbox SET next_attempt_at = now() WHERE id = :id"),
+            {"id": outbox_id},
+        )
+    again = repo.claim_outbox(10, 30)
+    assert again[0].attempts == 2
+
+    repo.mark_outbox_sent(outbox_id)
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT status, sent_at FROM outbox WHERE id = :id"), {"id": outbox_id}
+        ).one()
+    assert row.status == "SENT"
+    assert row.sent_at is not None

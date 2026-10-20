@@ -1,6 +1,7 @@
 import dataclasses
 import datetime as dt
 
+from app.application.relay import OutboxRelay
 from app.application.use_cases import ReservationService
 from app.config import Settings
 from app.infrastructure.clients.http import (
@@ -8,6 +9,7 @@ from app.infrastructure.clients.http import (
     HttpCustomerClient,
     HttpHotelClient,
     HttpJson,
+    HttpNotificationClient,
     HttpPaymentClient,
 )
 from app.infrastructure.db.engine import make_engine
@@ -65,6 +67,33 @@ def build(settings: Settings) -> Wiring:
             engine.dispose,
         ],
     )
+
+
+@dataclasses.dataclass
+class RelayWiring:
+    relay: OutboxRelay
+    closers: list
+
+    def close(self) -> None:
+        for closer in self.closers:
+            closer()
+
+
+def build_relay(settings: Settings) -> RelayWiring:
+    engine = make_engine(settings.db_url, settings.db_pool_size, settings.db_pool_timeout)
+    notification_http = HttpJson(
+        settings.notification_url,
+        settings.connect_timeout_seconds,
+        settings.notification_read_timeout_seconds,
+    )
+    relay = OutboxRelay(
+        SqlReservationRepository(engine),
+        HttpNotificationClient(notification_http),
+        lease_seconds=settings.relay_lease_seconds,
+        backoff_base_seconds=settings.backoff_base_seconds,
+        backoff_max_seconds=settings.backoff_max_seconds,
+    )
+    return RelayWiring(relay=relay, closers=[notification_http.close, engine.dispose])
 
 
 class _Clock:

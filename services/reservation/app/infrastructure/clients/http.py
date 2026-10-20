@@ -14,6 +14,7 @@ from app.application.ports import (
     RoomInfo,
 )
 from app.domain.errors import DependencyUnavailable, InvalidState, RoomNotFound
+from app.domain.outbox import OutboxEvent
 from app.logging import current_request_id
 
 GET_RETRIES = 3
@@ -42,7 +43,7 @@ class HttpJson:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.client = httpx.Client(
-            base_url=base_url,
+            base_url=base_url.rstrip("/") + "/",
             transport=transport,
             timeout=httpx.Timeout(read_timeout, connect=connect_timeout),
         )
@@ -57,7 +58,7 @@ class HttpJson:
         if headers:
             merged.update(headers)
         try:
-            return self.client.request(method, path, headers=merged, **kwargs)
+            return self.client.request(method, path.lstrip("/"), headers=merged, **kwargs)
         except httpx.ConnectError as e:
             raise DependencyUnavailable(str(e), ambiguous=False) from e
         except httpx.HTTPError as e:
@@ -231,3 +232,22 @@ class HttpHotelClient:
         if response.status_code == 404:
             raise RoomNotFound()
         raise _unavailable(response)
+
+
+class HttpNotificationClient:
+    def __init__(self, http: HttpJson) -> None:
+        self.http = http
+
+    def send(self, event: OutboxEvent) -> None:
+        response = self.http.post(
+            "/notifications",
+            json={
+                "event_id": str(event.id),
+                "type": event.type,
+                "reservation_id": str(event.aggregate_id),
+                "customer_id": event.payload["customer_id"],
+                "payload": event.payload,
+            },
+        )
+        if response.status_code not in (200, 202):
+            raise _unavailable(response)

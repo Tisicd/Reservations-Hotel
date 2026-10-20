@@ -3,6 +3,7 @@ import datetime as dt
 import uuid
 from typing import Protocol
 
+from app.domain.outbox import OutboxEvent
 from app.domain.reservation import Reservation
 
 
@@ -77,6 +78,12 @@ class ReservationRepository(Protocol):
 
     def events(self, reservation_id: uuid.UUID) -> list[dict]: ...
 
+    def claim_outbox(self, limit: int, lease_seconds: int) -> list[OutboxEvent]: ...
+
+    def mark_outbox_sent(self, outbox_id: uuid.UUID) -> None: ...
+
+    def reschedule_outbox(self, outbox_id: uuid.UUID, delay_seconds: float) -> None: ...
+
 
 class AvailabilityClient(Protocol):
     def create_hold(
@@ -124,3 +131,6 @@ class Clock(Protocol):
     def now(self) -> dt.datetime: ...
 
     def today(self) -> dt.date: ...
+
+class NotificationSender(Protocol):
+    def send(self, event: OutboxEvent) -> None: ...

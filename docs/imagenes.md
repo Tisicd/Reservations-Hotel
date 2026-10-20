@@ -10,6 +10,8 @@ servicio con `docker images`.
 | `reservation:local` | 176 MB | `docker images reservation:local --format "{{.Size}}"` | 2026-10-20 |
 | `customer:local` | 174 MB | `docker images customer:local --format "{{.Size}}"` | 2026-10-20 |
 | `hotel:local` | 174 MB | `docker images hotel:local --format "{{.Size}}"` | 2026-10-20 |
+| `notification:local` | 174 MB | `docker images notification:local --format "{{.Size}}"` | 2026-10-20 |
+| `nginx:1.27.4-alpine` (gateway) | 47.9 MB | `docker images nginx:1.27.4-alpine --format "{{.Size}}"` | 2026-10-20 |
 
 Notas de optimización aplicadas en `services/availability/Dockerfile`:
 - Multistage (`builder` + `runtime` sobre `python:3.12-slim`).

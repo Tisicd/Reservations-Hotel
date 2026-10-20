@@ -28,8 +28,8 @@ from app.infrastructure.db.repository import SqlReservationRepository
 
 pytestmark = pytest.mark.stack
 
-AVAILABILITY_URL = os.environ.get("AVAILABILITY_URL", "http://127.0.0.1:8101")
-PAYMENT_URL = os.environ.get("PAYMENT_URL", "http://127.0.0.1:8102")
+AVAILABILITY_URL = os.environ.get("AVAILABILITY_URL", "http://127.0.0.1:8081/svc/availability")
+PAYMENT_URL = os.environ.get("PAYMENT_URL", "http://127.0.0.1:8081/svc/payment")
 
 
 class _Clock:

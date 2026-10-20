@@ -1,0 +1,35 @@
+[importlinter]
+root_package = app
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = Capas hexagonales
+type = layers
+layers =
+    app.main
+    app.api | app.infrastructure
+    app.application
+    app.domain
+
+[importlinter:contract:domain-puro]
+name = Dominio sin frameworks
+type = forbidden
+source_modules =
+    app.domain
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    psycopg
+    pydantic
+
+[importlinter:contract:aplicacion-sin-infra-externa]
+name = Aplicacion sin frameworks de infraestructura
+type = forbidden
+source_modules =
+    app.application
+forbidden_modules =
+    fastapi
+    sqlalchemy
+    httpx
+    psycopg

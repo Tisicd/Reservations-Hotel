@@ -28,6 +28,7 @@ from app.domain.errors import (
     DependencyUnavailable,
     ReservationNotFound,
 )
+from app.domain.outbox import OutboxEvent
 from app.domain.reservation import Reservation
 from app.domain.state_machine import STABLE_STATES, ensure_transition
 
@@ -340,6 +341,60 @@ class SqlReservationRepository:
             return [_to_reservation(row) for row in rows]
 
         return self._run(op)
+
+    def claim_outbox(self, limit: int, lease_seconds: int) -> list[OutboxEvent]:
+        def op(conn):
+            due = (
+                select(outbox.c.id)
+                .where(
+                    outbox.c.status == "PENDING",
+                    outbox.c.next_attempt_at <= func.now(),
+                )
+                .order_by(outbox.c.next_attempt_at)
+                .limit(limit)
+                .with_for_update(skip_locked=True)
+            )
+            rows = conn.execute(
+                update(outbox)
+                .where(outbox.c.id.in_(due))
+                .values(
+                    attempts=outbox.c.attempts + 1,
+                    next_attempt_at=func.now() + dt.timedelta(seconds=lease_seconds),
+                )
+                .returning(outbox)
+            ).mappings()
+            return [
+                OutboxEvent(
+                    id=row["id"],
+                    aggregate_id=row["aggregate_id"],
+                    type=row["type"],
+                    payload=row["payload"],
+                    attempts=row["attempts"],
+                )
+                for row in rows
+            ]
+
+        return self._run(op)
+
+    def mark_outbox_sent(self, outbox_id: uuid.UUID) -> None:
+        def op(conn):
+            conn.execute(
+                update(outbox)
+                .where(outbox.c.id == outbox_id, outbox.c.status == "PENDING")
+                .values(status="SENT", sent_at=func.now())
+            )
+
+        self._run(op)
+
+    def reschedule_outbox(self, outbox_id: uuid.UUID, delay_seconds: float) -> None:
+        def op(conn):
+            conn.execute(
+                update(outbox)
+                .where(outbox.c.id == outbox_id)
+                .values(next_attempt_at=func.now() + dt.timedelta(seconds=delay_seconds))
+            )
+
+        self._run(op)
 
     def list_by_customer(self, customer_id: uuid.UUID) -> list[Reservation]:
         def op(conn):

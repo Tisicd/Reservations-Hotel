@@ -24,6 +24,8 @@ class Settings:
     payment_url: str
     customer_url: str
     hotel_url: str
+    notification_url: str
+    notification_read_timeout_seconds: float
     connect_timeout_seconds: float
     read_timeout_seconds: float
     payment_read_timeout_seconds: float
@@ -41,6 +43,9 @@ class Settings:
     max_nights: int
     recovery_interval_seconds: float
     recovery_batch: int
+    relay_interval_seconds: float
+    relay_batch: int
+    relay_lease_seconds: int
     log_level: str
 
     @property
@@ -85,10 +90,14 @@ def load_settings() -> Settings:
         payment_url=os.environ.get("PAYMENT_URL", "http://127.0.0.1:8102"),
         customer_url=os.environ.get("CUSTOMER_URL", "http://127.0.0.1:8080"),
         hotel_url=os.environ.get("HOTEL_URL", "http://127.0.0.1:8080"),
+        notification_url=os.environ.get("NOTIFICATION_URL", "http://127.0.0.1:8080"),
         connect_timeout_seconds=float(os.environ.get("HTTP_CONNECT_TIMEOUT_SECONDS", "1")),
         read_timeout_seconds=float(os.environ.get("HTTP_READ_TIMEOUT_SECONDS", "2")),
         payment_read_timeout_seconds=float(
             os.environ.get("PAYMENT_READ_TIMEOUT_SECONDS", "5")
+        ),
+        notification_read_timeout_seconds=float(
+            os.environ.get("NOTIFICATION_READ_TIMEOUT_SECONDS", "3")
         ),
         saga_sync_wait_seconds=float(os.environ.get("SAGA_SYNC_WAIT_SECONDS", "5")),
         hold_ttl_seconds=int(os.environ.get("HOLD_TTL_SECONDS", "600")),
@@ -110,5 +119,8 @@ def load_settings() -> Settings:
         max_nights=int(os.environ.get("MAX_NIGHTS", "30")),
         recovery_interval_seconds=float(os.environ.get("RECOVERY_INTERVAL_SECONDS", "2")),
         recovery_batch=int(os.environ.get("RECOVERY_BATCH", "20")),
+        relay_interval_seconds=float(os.environ.get("RELAY_INTERVAL_SECONDS", "1")),
+        relay_batch=int(os.environ.get("RELAY_BATCH", "20")),
+        relay_lease_seconds=int(os.environ.get("RELAY_LEASE_SECONDS", "30")),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
     )
