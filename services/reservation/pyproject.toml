@@ -22,6 +22,7 @@ include = ["app*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = ["stack: requiere availability y payment reales"]
 
 [tool.ruff]
 line-length = 100

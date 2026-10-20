@@ -7,6 +7,7 @@ servicio con `docker images`.
 |---|---|---|---|
 | `availability:local` | 174 MB | `docker images availability:local --format "{{.Size}}"` | 2026-10-19 |
 | `payment:local` | 174 MB | `docker images payment:local --format "{{.Size}}"` | 2026-10-20 |
+| `reservation:local` | 176 MB | `docker images reservation:local --format "{{.Size}}"` | 2026-10-20 |
 
 Notas de optimización aplicadas en `services/availability/Dockerfile`:
 - Multistage (`builder` + `runtime` sobre `python:3.12-slim`).
@@ -21,3 +22,8 @@ Notas de optimización aplicadas en `services/payment/Dockerfile`:
   el prefijo instalado + `app/`, `migrations/` y `alembic.ini`.
 - Usuario no-root (`appuser`, uid 10001); sin archivos de test ni `pyproject.toml`
   en la imagen final.
+
+Notas de optimización aplicadas en `services/reservation/Dockerfile`:
+- Mismo patrón multistage (`builder` + `runtime` sobre `python:3.12-slim`).
+- `pip install --prefix=/install .` en el builder; la runtime solo copia el prefijo instalado + `app/`, `migrations/` y `alembic.ini`.
+- Usuario no-root (`appuser`, uid 10001); sin tests ni `pyproject.toml` en la imagen final.

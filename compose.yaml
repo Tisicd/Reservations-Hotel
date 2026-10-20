@@ -14,6 +14,8 @@ secrets:
     file: secrets/availability_db_password.txt
   payment_db_password:
     file: secrets/payment_db_password.txt
+  reservation_db_password:
+    file: secrets/reservation_db_password.txt
 
 x-availability-env: &availability-env
   DB_HOST: postgres
@@ -33,6 +35,30 @@ x-payment-env: &payment-env
   PROVIDER_SLOW_SECONDS: "6"
   RECONCILE_INTERVAL_SECONDS: "5"
   RECONCILE_MIN_AGE_SECONDS: "2"
+
+x-reservation-env: &reservation-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: reservation_db
+  DB_USER: reservation
+  DB_PASSWORD_FILE: /run/secrets/reservation_db_password
+  AVAILABILITY_URL: http://availability:8000
+  PAYMENT_URL: http://payment:8000
+  CUSTOMER_URL: http://customer:8000
+  HOTEL_URL: http://hotel:8000
+  SAGA_SYNC_WAIT_SECONDS: "5"
+  HOLD_TTL_SECONDS: "600"
+  SAGA_HOLD_DEADLINE_SECONDS: "60"
+  PAYMENT_MAX_TECHNICAL_RETRIES: "3"
+  PAYMENT_RECONCILE_DEADLINE_SECONDS: "900"
+  CONFIRM_DEADLINE_SECONDS: "120"
+  MANUAL_REVIEW_HOLD_TTL_SECONDS: "86400"
+  BACKOFF_BASE_SECONDS: "0.5"
+  BACKOFF_MAX_SECONDS: "30"
+  LEASE_SECONDS: "15"
+  RECOVERY_INTERVAL_SECONDS: "2"
+  RECOVERY_BATCH: "20"
+  MAX_NIGHTS: "30"
 
 services:
   postgres:
@@ -222,6 +248,89 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import os,sys,time; p='/tmp/heartbeat'; s=int(os.environ.get('RECONCILE_INTERVAL_SECONDS','5'))*3; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<=s else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  reservation-migrate:
+    build: ./services/reservation
+    image: reservation:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *reservation-env
+    secrets:
+      - reservation_db_password
+    networks:
+      - data-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: "no"
+
+  reservation:
+    build: ./services/reservation
+    image: reservation:local
+    init: true
+    environment: *reservation-env
+    secrets:
+      - reservation_db_password
+    networks:
+      - backend-net
+      - data-net
+    depends_on:
+      reservation-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  reservation-worker:
+    build: ./services/reservation
+    image: reservation:local
+    init: true
+    command: ["python", "-m", "app.infrastructure.workers.reconcile"]
+    environment: *reservation-env
+    secrets:
+      - reservation_db_password
+    networks:
+      - backend-net
+      - data-net
+    depends_on:
+      reservation-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    pids_limit: 64
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; p='/tmp/heartbeat'; s=int(os.environ.get('RECOVERY_INTERVAL_SECONDS','2'))*3; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<=s else 1)"]
       interval: 5s
       timeout: 5s
       retries: 3

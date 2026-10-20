@@ -1,4 +1,4 @@
-.PHONY: up down test lint clean clean-all secrets deps snapshot-availability snapshot-payment
+.PHONY: up down test lint clean clean-all secrets deps snapshot-availability snapshot-payment snapshot-reservation
 
 PYTHON ?= python
 VENV := .venv
@@ -39,15 +39,21 @@ lint: deps
 	cd services/availability && $(CURDIR)/$(LINT_IMPORTS)
 	cd services/payment && $(CURDIR)/$(VENV_PY) -m ruff check .
 	cd services/payment && $(CURDIR)/$(LINT_IMPORTS)
+	cd services/reservation && $(CURDIR)/$(VENV_PY) -m ruff check .
+	cd services/reservation && $(CURDIR)/$(LINT_IMPORTS)
 
 test: deps
-	$(COMPOSE_DEV) up -d --wait postgres
+	$(COMPOSE_DEV) up -d --wait postgres availability payment
 	$(VENV_PY) -m pytest tests/infra
 	cd services/availability && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/payment && $(CURDIR)/$(VENV_PY) -m pytest
+	cd services/reservation && $(CURDIR)/$(VENV_PY) -m pytest
 
 snapshot-availability: deps
 	cd services/availability && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py
 
 snapshot-payment: deps
 	cd services/payment && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py
+
+snapshot-reservation: deps
+	cd services/reservation && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py

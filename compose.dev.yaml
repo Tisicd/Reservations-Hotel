@@ -21,3 +21,9 @@ services:
       - dev-net
     environment:
       PAYMENT_SIMULATION_ENABLED: "true"
+
+  reservation:
+    ports:
+      - "127.0.0.1:8103:8000"
+    networks:
+      - dev-net

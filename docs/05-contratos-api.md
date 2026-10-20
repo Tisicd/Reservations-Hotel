@@ -9,7 +9,7 @@ Los contratos son **HTTP/JSON explícitos**. FastAPI generará el OpenAPI de cad
 | Fechas | `YYYY-MM-DD`; noches = `[check_in, check_out)`; `check_out > check_in` |
 | Dinero | enteros en centavos (`amount_cents`) + `currency` (`USD`) |
 | Cabeceras | `X-Request-ID` (se genera si falta y se devuelve), `Idempotency-Key` (obligatoria en `POST /reservations` y `POST /payments`) |
-| Salud | Todo servicio: `GET /health` (liveness, sin dependencias) y `GET /ready` (BD y dependencias críticas → 200/503) |
+| Salud | Todo servicio: `GET /health` (liveness, sin dependencias) y `GET /ready` (BD y dependencias críticas → 200/503). **Aclaración (T1.3):** en `reservation`, `/ready` comprueba solo su BD; `availability`/`payment`/`customer`/`hotel` son degradables (la saga las reintenta) y no deben sacarlo de servicio |
 | Errores | `{"error": {"code": "NO_INVENTORY", "message": "…", "request_id": "…", "details": {}}}` |
 
 | HTTP | Uso |
