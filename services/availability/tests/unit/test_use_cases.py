@@ -83,7 +83,9 @@ def test_fecha_invalida():
 def test_total_negativo_rechazado():
     s = svc()
     with pytest.raises(ValidationError):
-        s.put_inventory(uuid.uuid4(), uuid.uuid4(), dt.date(2026, 1, 1), dt.date(2026, 1, 2), total=-1)
+        s.put_inventory(
+            uuid.uuid4(), uuid.uuid4(), dt.date(2026, 1, 1), dt.date(2026, 1, 2), total=-1
+        )
 
 
 def test_extend_valida_ttl():

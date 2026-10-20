@@ -5,12 +5,17 @@ on:
   pull_request:
 
 jobs:
-  bootstrap:
+  availability:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Copiar .env
         run: cp .env.example .env
+      - name: Secretos
+        run: python scripts/gen_secrets.py
       - name: Lint
         run: make lint
       - name: Up

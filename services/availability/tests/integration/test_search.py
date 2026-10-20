@@ -1,8 +1,6 @@
 import datetime as dt
 import uuid
 
-from app.domain.hold import CONFIRMED
-
 
 def test_search_devuelve_minimo_por_noche(store):
     room = uuid.uuid4()

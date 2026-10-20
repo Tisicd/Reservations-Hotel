@@ -114,7 +114,9 @@ def test_idempotencia_mismo_hold_id(store, engine, db_url_fixture):
 
     assert len(created) == 1
     with engine.connect() as conn:
-        cnt = conn.execute(text("SELECT count(*) FROM holds WHERE hold_id = :h"), {"h": hold_id}).scalar()
+        cnt = conn.execute(
+            text("SELECT count(*) FROM holds WHERE hold_id = :h"), {"h": hold_id}
+        ).scalar()
         assert cnt == 1
         held_nights = [
             r[0]

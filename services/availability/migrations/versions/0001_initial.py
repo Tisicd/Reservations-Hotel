@@ -5,6 +5,7 @@ Revises:
 Create Date: 2026-10-19
 
 """
+
 from alembic import op
 
 revision = "0001"
@@ -45,9 +46,7 @@ def upgrade() -> None:
         """
     )
     op.execute("CREATE INDEX idx_inventory_hotel_night ON inventory (hotel_id, night)")
-    op.execute(
-        "CREATE INDEX idx_holds_expires_held ON holds (expires_at) WHERE status = 'HELD'"
-    )
+    op.execute("CREATE INDEX idx_holds_expires_held ON holds (expires_at) WHERE status = 'HELD'")
 
 
 def downgrade() -> None:

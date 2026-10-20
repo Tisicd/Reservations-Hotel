@@ -9,6 +9,17 @@ networks:
 volumes:
   pgdata:
 
+secrets:
+  availability_db_password:
+    file: secrets/availability_db_password.txt
+
+x-availability-env: &availability-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: availability_db
+  DB_USER: availability
+  DB_PASSWORD_FILE: /run/secrets/availability_db_password
+
 services:
   postgres:
     image: postgres:16
@@ -41,3 +52,83 @@ services:
       timeout: 5s
       retries: 12
       start_period: 15s
+
+  availability-migrate:
+    build: ./services/availability
+    image: availability:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *availability-env
+    secrets:
+      - availability_db_password
+    networks:
+      - data-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: "no"
+
+  availability:
+    build: ./services/availability
+    image: availability:local
+    environment: *availability-env
+    secrets:
+      - availability_db_password
+    networks:
+      - backend-net
+      - data-net
+    depends_on:
+      availability-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  availability-worker:
+    build: ./services/availability
+    image: availability:local
+    command: ["python", "-m", "app.infrastructure.workers.expire_holds"]
+    environment: *availability-env
+    secrets:
+      - availability_db_password
+    networks:
+      - data-net
+    depends_on:
+      availability-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    pids_limit: 64
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

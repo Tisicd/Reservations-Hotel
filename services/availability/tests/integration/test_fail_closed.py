@@ -32,7 +32,9 @@ def test_fail_closed_lock_timeout(store, engine, db_url_fixture):
     with holder.begin() as conn:
         conn.execute(text("SELECT * FROM inventory WHERE room_id = :r FOR UPDATE"), {"r": room})
 
-        low_timeout = create_engine(db_url_fixture, connect_args={"options": "-c lock_timeout=1000"})
+        low_timeout = create_engine(
+            db_url_fixture, connect_args={"options": "-c lock_timeout=1000"}
+        )
         s = SqlInventoryStore(low_timeout)
         hold_id = uuid.uuid4()
         with pytest.raises(DependencyUnavailable):
@@ -43,9 +45,12 @@ def test_fail_closed_lock_timeout(store, engine, db_url_fixture):
 
     # sin estado parcial
     with engine.connect() as conn:
-        cnt = conn.execute(text("SELECT count(*) FROM holds WHERE hold_id = :h"), {"h": hold_id}).scalar()
+        cnt = conn.execute(
+            text("SELECT count(*) FROM holds WHERE hold_id = :h"), {"h": hold_id}
+        ).scalar()
         assert cnt == 0
         held = conn.execute(
-            text("SELECT held FROM inventory WHERE room_id = :r AND night = :n"), {"r": room, "n": ci}
+            text("SELECT held FROM inventory WHERE room_id = :r AND night = :n"),
+            {"r": room, "n": ci},
         ).scalar()
         assert held == 0

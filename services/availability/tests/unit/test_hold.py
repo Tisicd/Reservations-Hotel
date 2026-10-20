@@ -6,7 +6,7 @@ import pytest
 from app.domain.errors import HoldExpired, InvalidState
 from app.domain.hold import CONFIRMED, EXPIRED, HELD, RELEASED, Hold, transition
 
-NOW = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+NOW = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
 
 
 def make_hold(status=HELD, expires_at=None):

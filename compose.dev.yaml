@@ -7,3 +7,9 @@ services:
       - "127.0.0.1:${POSTGRES_DEV_PORT:-5433}:5432"
     networks:
       - dev-net
+
+  availability:
+    ports:
+      - "127.0.0.1:8101:8000"
+    networks:
+      - dev-net

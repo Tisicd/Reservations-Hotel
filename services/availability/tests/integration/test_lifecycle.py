@@ -8,8 +8,8 @@ from sqlalchemy import text
 from app.domain.errors import (
     HoldExpired,
     HoldNotFound,
-    InventoryBelowCommitted,
     InvalidState,
+    InventoryBelowCommitted,
 )
 from app.domain.hold import CONFIRMED, RELEASED
 
@@ -35,15 +35,24 @@ def test_ciclo_de_vida_completo(store, engine):
     c2 = store.confirm_hold(hold_id)
     assert c1.status == CONFIRMED and c2.status == CONFIRMED
     with engine.connect() as conn:
-        held = conn.execute(text("SELECT held FROM inventory WHERE room_id = :r AND night = :n"), {"r": room, "n": ci}).scalar()
-        confirmed = conn.execute(text("SELECT confirmed FROM inventory WHERE room_id = :r AND night = :n"), {"r": room, "n": ci}).scalar()
+        held = conn.execute(
+            text("SELECT held FROM inventory WHERE room_id = :r AND night = :n"),
+            {"r": room, "n": ci},
+        ).scalar()
+        confirmed = conn.execute(
+            text("SELECT confirmed FROM inventory WHERE room_id = :r AND night = :n"),
+            {"r": room, "n": ci},
+        ).scalar()
         assert held == 0 and confirmed == 2
 
     # release desde CONFIRMED restaura
     r = store.release_hold(hold_id)
     assert r.status == RELEASED
     with engine.connect() as conn:
-        confirmed = conn.execute(text("SELECT confirmed FROM inventory WHERE room_id = :r AND night = :n"), {"r": room, "n": ci}).scalar()
+        confirmed = conn.execute(
+            text("SELECT confirmed FROM inventory WHERE room_id = :r AND night = :n"),
+            {"r": room, "n": ci},
+        ).scalar()
         assert confirmed == 0
 
 
@@ -54,7 +63,10 @@ def test_release_desde_held_y_repetido_sin_efecto(store, engine):
     assert store.release_hold(hold_id).status == RELEASED
     assert store.release_hold(hold_id).status == RELEASED  # sin efecto
     with engine.connect() as conn:
-        held = conn.execute(text("SELECT held FROM inventory WHERE room_id = :r AND night = :n"), {"r": room, "n": ci}).scalar()
+        held = conn.execute(
+            text("SELECT held FROM inventory WHERE room_id = :r AND night = :n"),
+            {"r": room, "n": ci},
+        ).scalar()
         assert held == 0
 
 
@@ -86,8 +98,13 @@ def test_expiracion_libera_cupo(store, engine):
     released = store.expire_due(limit=100)
     assert hold_id in released
     with engine.connect() as conn:
-        held = conn.execute(text("SELECT held FROM inventory WHERE room_id = :r AND night = :n"), {"r": room, "n": ci}).scalar()
-        status = conn.execute(text("SELECT status FROM holds WHERE hold_id = :h"), {"h": hold_id}).scalar()
+        held = conn.execute(
+            text("SELECT held FROM inventory WHERE room_id = :r AND night = :n"),
+            {"r": room, "n": ci},
+        ).scalar()
+        status = conn.execute(
+            text("SELECT status FROM holds WHERE hold_id = :h"), {"h": hold_id}
+        ).scalar()
         assert held == 0 and status == "EXPIRED"
 
 
@@ -131,5 +148,7 @@ def test_put_inventory_amplia_rango(store, engine):
     # amplía el rango una noche más
     store.put_inventory(hotel, room, ci, dt.date(2026, 11, 14), total=3)
     with engine.connect() as conn:
-        cnt = conn.execute(text("SELECT count(*) FROM inventory WHERE room_id = :r"), {"r": room}).scalar()
+        cnt = conn.execute(
+            text("SELECT count(*) FROM inventory WHERE room_id = :r"), {"r": room}
+        ).scalar()
         assert cnt == 4

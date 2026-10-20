@@ -15,9 +15,7 @@ class InventoryStore(Protocol):
         total: int,
     ) -> None: ...
 
-    def search(
-        self, hotel_id: uuid.UUID, check_in: dt.date, check_out: dt.date
-    ) -> list[dict]: ...
+    def search(self, hotel_id: uuid.UUID, check_in: dt.date, check_out: dt.date) -> list[dict]: ...
 
     def create_hold(
         self,

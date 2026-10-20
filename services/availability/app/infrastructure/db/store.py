@@ -1,6 +1,7 @@
 import datetime as dt
 import uuid
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 from sqlalchemy import (
     Column,
@@ -18,7 +19,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import OperationalError, TimeoutError as SAConnectionTimeout
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as SAConnectionTimeout
 
 from app.domain.errors import (
     DependencyUnavailable,
@@ -26,8 +28,8 @@ from app.domain.errors import (
     HoldConflict,
     HoldExpired,
     HoldNotFound,
-    InventoryBelowCommitted,
     InvalidState,
+    InventoryBelowCommitted,
     NoInventory,
 )
 from app.domain.hold import CONFIRMED, EXPIRED, HELD, RELEASED, Hold
@@ -129,7 +131,14 @@ class SqlInventoryStore:
             for n in nights:
                 conn.execute(
                     insert(inventory)
-                    .values(room_id=room_id, hotel_id=hotel_id, night=n, total=total, held=0, confirmed=0)
+                    .values(
+                        room_id=room_id,
+                        hotel_id=hotel_id,
+                        night=n,
+                        total=total,
+                        held=0,
+                        confirmed=0,
+                    )
                     .on_conflict_do_update(
                         index_elements=["room_id", "night"],
                         set_={"hotel_id": hotel_id, "total": total},
@@ -139,9 +148,7 @@ class SqlInventoryStore:
 
         self._run(op)
 
-    def search(
-        self, hotel_id: uuid.UUID, check_in: dt.date, check_out: dt.date
-    ) -> list[dict]:
+    def search(self, hotel_id: uuid.UUID, check_in: dt.date, check_out: dt.date) -> list[dict]:
         def op(conn):
             n_nights = (check_out - check_in).days
             rows = conn.execute(
@@ -195,11 +202,16 @@ class SqlInventoryStore:
                 .returning(holds.c.hold_id)
             )
             if result.fetchone() is None:
-                existing = conn.execute(
-                    select(holds).where(holds.c.hold_id == hold_id)
-                ).mappings().one()
+                existing = (
+                    conn.execute(select(holds).where(holds.c.hold_id == hold_id)).mappings().one()
+                )
                 h = self._to_hold(existing)
-                if (h.room_id, h.check_in, h.check_out, h.units) == (room_id, check_in, check_out, units):
+                if (h.room_id, h.check_in, h.check_out, h.units) == (
+                    room_id,
+                    check_in,
+                    check_out,
+                    units,
+                ):
                     return h, False
                 raise HoldConflict("mismo hold_id con parámetros distintos")
 
@@ -243,9 +255,11 @@ class SqlInventoryStore:
     def confirm_hold(self, hold_id: uuid.UUID) -> Hold:
         def op(conn):
             now = self._now(conn)
-            row = conn.execute(
-                select(holds).where(holds.c.hold_id == hold_id).with_for_update()
-            ).mappings().first()
+            row = (
+                conn.execute(select(holds).where(holds.c.hold_id == hold_id).with_for_update())
+                .mappings()
+                .first()
+            )
             if row is None:
                 raise HoldNotFound()
             if row["status"] == CONFIRMED:
@@ -257,10 +271,15 @@ class SqlInventoryStore:
                 conn.execute(
                     update(inventory)
                     .where(inventory.c.room_id == row["room_id"], inventory.c.night.in_(nights))
-                    .values(held=inventory.c.held - row["units"], confirmed=inventory.c.confirmed + row["units"])
+                    .values(
+                        held=inventory.c.held - row["units"],
+                        confirmed=inventory.c.confirmed + row["units"],
+                    )
                 )
                 conn.execute(
-                    update(holds).where(holds.c.hold_id == hold_id).values(status=CONFIRMED, updated_at=now)
+                    update(holds)
+                    .where(holds.c.hold_id == hold_id)
+                    .values(status=CONFIRMED, updated_at=now)
                 )
                 return Hold(
                     hold_id=row["hold_id"],
@@ -282,9 +301,11 @@ class SqlInventoryStore:
     def release_hold(self, hold_id: uuid.UUID) -> Hold:
         def op(conn):
             now = self._now(conn)
-            row = conn.execute(
-                select(holds).where(holds.c.hold_id == hold_id).with_for_update()
-            ).mappings().first()
+            row = (
+                conn.execute(select(holds).where(holds.c.hold_id == hold_id).with_for_update())
+                .mappings()
+                .first()
+            )
             if row is None:
                 raise HoldNotFound()
             if row["status"] == HELD:
@@ -295,7 +316,9 @@ class SqlInventoryStore:
                     .values(held=inventory.c.held - row["units"])
                 )
                 conn.execute(
-                    update(holds).where(holds.c.hold_id == hold_id).values(status=RELEASED, updated_at=now)
+                    update(holds)
+                    .where(holds.c.hold_id == hold_id)
+                    .values(status=RELEASED, updated_at=now)
                 )
             elif row["status"] == CONFIRMED:
                 nights = _nights(row["check_in"], row["check_out"])
@@ -305,7 +328,9 @@ class SqlInventoryStore:
                     .values(confirmed=inventory.c.confirmed - row["units"])
                 )
                 conn.execute(
-                    update(holds).where(holds.c.hold_id == hold_id).values(status=RELEASED, updated_at=now)
+                    update(holds)
+                    .where(holds.c.hold_id == hold_id)
+                    .values(status=RELEASED, updated_at=now)
                 )
             else:
                 return self._to_hold(row)  # RELEASED/EXPIRED sin cambios
@@ -326,9 +351,11 @@ class SqlInventoryStore:
     def extend_hold(self, hold_id: uuid.UUID, ttl_seconds: int) -> Hold:
         def op(conn):
             now = self._now(conn)
-            row = conn.execute(
-                select(holds).where(holds.c.hold_id == hold_id).with_for_update()
-            ).mappings().first()
+            row = (
+                conn.execute(select(holds).where(holds.c.hold_id == hold_id).with_for_update())
+                .mappings()
+                .first()
+            )
             if row is None:
                 raise HoldNotFound()
             if row["status"] != HELD:
@@ -337,7 +364,9 @@ class SqlInventoryStore:
                 raise HoldExpired()
             new_expires = now + dt.timedelta(seconds=ttl_seconds)
             conn.execute(
-                update(holds).where(holds.c.hold_id == hold_id).values(expires_at=new_expires, updated_at=now)
+                update(holds)
+                .where(holds.c.hold_id == hold_id)
+                .values(expires_at=new_expires, updated_at=now)
             )
             return Hold(
                 hold_id=row["hold_id"],
@@ -365,13 +394,17 @@ class SqlInventoryStore:
     def expire_due(self, limit: int) -> list[uuid.UUID]:
         def op(conn):
             now = self._now(conn)
-            rows = conn.execute(
-                select(holds)
-                .where(holds.c.status == HELD, holds.c.expires_at <= now)
-                .order_by(holds.c.expires_at)
-                .with_for_update(skip_locked=True)
-                .limit(limit)
-            ).mappings().fetchall()
+            rows = (
+                conn.execute(
+                    select(holds)
+                    .where(holds.c.status == HELD, holds.c.expires_at <= now)
+                    .order_by(holds.c.expires_at)
+                    .with_for_update(skip_locked=True)
+                    .limit(limit)
+                )
+                .mappings()
+                .fetchall()
+            )
             released = []
             for row in rows:
                 nights = _nights(row["check_in"], row["check_out"])
@@ -381,7 +414,9 @@ class SqlInventoryStore:
                     .values(held=inventory.c.held - row["units"])
                 )
                 conn.execute(
-                    update(holds).where(holds.c.hold_id == row["hold_id"]).values(status=EXPIRED, updated_at=now)
+                    update(holds)
+                    .where(holds.c.hold_id == row["hold_id"])
+                    .values(status=EXPIRED, updated_at=now)
                 )
                 released.append(row["hold_id"])
             return released
