@@ -33,11 +33,7 @@ services:
       RESERVATION_DB_PASSWORD: ${RESERVATION_DB_PASSWORD}
       PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD}
       NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD}
-    command: >
-      postgres
-      -c statement_timeout=15s
-      -c lock_timeout=10s
-      -c idle_in_transaction_session_timeout=60s
+    init: true
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts:/scripts:ro
@@ -80,6 +76,7 @@ services:
   availability:
     build: ./services/availability
     image: availability:local
+    init: true
     environment: *availability-env
     secrets:
       - availability_db_password
@@ -108,6 +105,7 @@ services:
   availability-worker:
     build: ./services/availability
     image: availability:local
+    init: true
     command: ["python", "-m", "app.infrastructure.workers.expire_holds"]
     environment: *availability-env
     secrets:
@@ -127,8 +125,8 @@ services:
     pids_limit: 64
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
-      interval: 15s
+      test: ["CMD", "python", "-c", "import os,sys,time; p='/tmp/heartbeat'; s=int(os.environ.get('EXPIRY_INTERVAL_SECONDS','5'))*3; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<=s else 1)"]
+      interval: 5s
       timeout: 5s
       retries: 3
       start_period: 10s

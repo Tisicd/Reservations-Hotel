@@ -1,4 +1,6 @@
 import logging
+import os
+import pathlib
 import signal
 import time
 
@@ -6,6 +8,15 @@ from app.config import load_settings
 from app.infrastructure.db.engine import make_engine
 from app.infrastructure.db.store import SqlInventoryStore
 from app.logging import configure_logging
+
+HEARTBEAT = pathlib.Path(os.environ.get("WORKER_HEARTBEAT_FILE", "/tmp/heartbeat"))
+
+
+def _beat() -> None:
+    try:
+        HEARTBEAT.write_text(str(time.time()))
+    except OSError:
+        pass
 
 
 def main() -> None:
@@ -31,6 +42,7 @@ def main() -> None:
                 logger.info("holds expirados liberados: %d", len(released))
         except Exception as e:  # noqa: BLE001
             logger.warning("error al expirar holds: %s", e)
+        _beat()
         time.sleep(settings.expiry_interval_seconds)
 
 

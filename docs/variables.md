@@ -38,6 +38,7 @@ actualizan cuando se añade o cambia una variable.
 | `MAX_UNITS` | No | `10` | Unidades máximas por hold |
 | `EXPIRY_INTERVAL_SECONDS` | No | `5` | Intervalo de barrido del worker de expiración |
 | `EXPIRY_BATCH` | No | `100` | Máximo de holds expirados por barrido |
+| `WORKER_HEARTBEAT_FILE` | No | `/tmp/heartbeat` | Archivo que el worker toca en cada iteración; el healthcheck falla si tiene más de `3 × EXPIRY_INTERVAL_SECONDS` |
 | `LOG_LEVEL` | No | `INFO` | Nivel de log (JSON en stdout) |
 
 `DB_PASSWORD` y `DB_PASSWORD_FILE` son mutuamente excluyentes en la práctica: el
@@ -48,8 +49,13 @@ compose se usa el secret (`DB_PASSWORD_FILE`); en las pruebas locales el archivo
 ## Convenciones
 
 - Los roles y bases se crean en `scripts/init-db.sh`, que solo se ejecuta en el
-  primer arranque (volumen `pgdata` vacío). Tras cambiar `*.DB_PASSWORD` hay que
-  `make clean && make up` para recrear.
+  primer arranque (volumen `pgdata` vacío). Tras cambiar `*.DB_PASSWORD` **o los
+  timeouts por rol** (`ALTER ROLE … SET`) hay que `make clean && make up` para
+  recrear: el script no se re-ejecuta sobre un volumen existente.
+- Los timeouts de BD son **por rol** (`statement_timeout=5s`, `lock_timeout=2s`,
+  `idle_in_transaction_session_timeout=10s`, ADR-0002); el servidor no fija
+  valores globales. Así un `lock_timeout` no excede la espera síncrona de la saga
+  (5 s).
 - `CUSTOMER_DB_PASSWORD` y afines solo los consume el script de init; cada
   servicio leerá después su propia variable de conexión (se documenta en F1).
 - En Windows, `make` se ejecuta con GNU Make (ezwinports) y `docker compose`;

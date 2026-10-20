@@ -34,17 +34,31 @@ def test_durabilidad_on(admin_conn):
         assert val == "on", f"{setting}={val}"
 
 
-def test_timeouts_acordados(admin_conn):
+def test_timeouts_por_rol(admin_conn):
     expected = {
-        "statement_timeout": "15000",
-        "lock_timeout": "10000",
-        "idle_in_transaction_session_timeout": "60000",
+        "statement_timeout": "5s",
+        "lock_timeout": "2s",
+        "idle_in_transaction_session_timeout": "10s",
     }
-    for setting, want_ms in expected.items():
+    for role in SERVICES:
+        raw = admin_conn.execute(
+            "SELECT rolconfig FROM pg_roles WHERE rolname = %s", (role,)
+        ).fetchone()[0] or []
+        cfg = dict(item.split("=", 1) for item in raw)
+        for setting, want in expected.items():
+            assert cfg.get(setting) == want, f"{role}.{setting}={cfg.get(setting)}"
+
+
+def test_sin_timeouts_globales(admin_conn):
+    for setting in (
+        "statement_timeout",
+        "lock_timeout",
+        "idle_in_transaction_session_timeout",
+    ):
         got = admin_conn.execute(
             "SELECT setting FROM pg_settings WHERE name = %s", (setting,)
         ).fetchone()[0]
-        assert got == want_ms, f"{setting}={got}"
+        assert got == "0", f"{setting} global={got}"
 
 
 def test_compose_sin_puertos_y_redes_internas():

@@ -22,4 +22,25 @@ REVOKE CONNECT ON DATABASE availability_db FROM PUBLIC;
 REVOKE CONNECT ON DATABASE reservation_db FROM PUBLIC;
 REVOKE CONNECT ON DATABASE payment_db FROM PUBLIC;
 REVOKE CONNECT ON DATABASE notification_db FROM PUBLIC;
+
+-- Timeouts por rol (ADR-0002). No se fijan globalmente en el servidor para que
+-- un lock_timeout alto de un rol no exceda la espera síncrona de la saga (5 s).
+ALTER ROLE customer SET statement_timeout = '5s';
+ALTER ROLE customer SET lock_timeout = '2s';
+ALTER ROLE customer SET idle_in_transaction_session_timeout = '10s';
+ALTER ROLE hotel SET statement_timeout = '5s';
+ALTER ROLE hotel SET lock_timeout = '2s';
+ALTER ROLE hotel SET idle_in_transaction_session_timeout = '10s';
+ALTER ROLE availability SET statement_timeout = '5s';
+ALTER ROLE availability SET lock_timeout = '2s';
+ALTER ROLE availability SET idle_in_transaction_session_timeout = '10s';
+ALTER ROLE reservation SET statement_timeout = '5s';
+ALTER ROLE reservation SET lock_timeout = '2s';
+ALTER ROLE reservation SET idle_in_transaction_session_timeout = '10s';
+ALTER ROLE payment SET statement_timeout = '5s';
+ALTER ROLE payment SET lock_timeout = '2s';
+ALTER ROLE payment SET idle_in_transaction_session_timeout = '10s';
+ALTER ROLE notification SET statement_timeout = '5s';
+ALTER ROLE notification SET lock_timeout = '2s';
+ALTER ROLE notification SET idle_in_transaction_session_timeout = '10s';
 EOSQL
