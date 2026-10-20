@@ -12,12 +12,14 @@ from app.domain.errors import (
     ValidationError,
 )
 from app.domain.reservation import (
+    REASON_CANCEL_TIMEOUT,
     REASON_DECLINED,
     REASON_HOLD_LOST_REFUNDED,
     REASON_TECHNICAL,
 )
 from app.domain.state_machine import (
     CANCELLED,
+    CANCELLING,
     CONFIRMED,
     FAILED_TECHNICAL,
     MANUAL_REVIEW,
@@ -215,6 +217,27 @@ def test_cancelacion_confirmada_y_repetida_es_idempotente():
     assert len(availability.releases) == 1
     assert len(payment.refunds) == 1
     assert len(repo.outbox_rows) == 2
+
+
+def test_cancelacion_que_no_puede_reembolsar_vence_a_manual_review():
+    service, repo, availability, payment, clock, command = _service(
+        payment={"refund_behavior": "down"}
+    )
+    reservation, _ = service.create_reservation("key-cancel-timeout", command)
+    assert reservation.status == CONFIRMED
+
+    started = service.cancel_reservation(reservation.id)
+    assert started.status == CANCELLING
+    assert len(availability.releases) == 1
+
+    clock.advance(service.config.cancel_deadline_seconds)
+    final = service.advance(reservation.id)
+
+    assert final.status == MANUAL_REVIEW
+    assert final.status_reason == REASON_CANCEL_TIMEOUT
+    assert len(availability.releases) == 1
+    assert payment.refunds == []
+    assert [e["type"] for e in repo.outbox_rows] == ["reservation.confirmed"]
 
 
 def test_cancelar_desde_estado_no_confirmado_es_invalido():

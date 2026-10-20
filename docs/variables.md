@@ -95,6 +95,7 @@ En las pruebas locales el secreto se lee de `secrets/payment_db_password.txt`
 | `PAYMENT_MAX_TECHNICAL_RETRIES` | No | `3` | Intentos técnicos antes de `PAYMENT_DECLINED(TECHNICAL)` |
 | `PAYMENT_RECONCILE_DEADLINE_SECONDS` | No | `900` | Plazo de reconciliación de `PAYMENT_UNKNOWN` |
 | `CONFIRM_DEADLINE_SECONDS` | No | `120` | Plazo para confirmar el hold estando `PAID` |
+| `CANCEL_DEADLINE_SECONDS` | No | `120` | Plazo para liberar y reembolsar en `CANCELLING`; al vencer ⇒ `MANUAL_REVIEW` |
 | `MANUAL_REVIEW_HOLD_TTL_SECONDS` | No | `86400` | Extensión del hold al pasar a `MANUAL_REVIEW` |
 | `BACKOFF_BASE_SECONDS` | No | `0.5` | Base del backoff exponencial |
 | `BACKOFF_MAX_SECONDS` | No | `30` | Tope del backoff |

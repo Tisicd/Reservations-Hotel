@@ -31,6 +31,7 @@ TEST_CONFIG = SagaConfig(
     payment_max_technical_retries=3,
     payment_reconcile_deadline_seconds=20,
     confirm_deadline_seconds=10,
+    cancel_deadline_seconds=10,
     manual_review_hold_ttl_seconds=86400,
     backoff_base_seconds=0.5,
     backoff_max_seconds=2,
@@ -57,6 +58,11 @@ class CrashPlan:
 
     def disarm(self) -> None:
         self.target = None
+
+    def reset(self, target: int | None = None) -> None:
+        self.target = target
+        self.count = 0
+        self.ops.clear()
 
 
 class FakeClock:

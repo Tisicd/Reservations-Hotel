@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from app.domain.errors import ConcurrentModification, DependencyUnavailable, InvalidState
 from app.domain.reservation import (
+    REASON_CANCEL_TIMEOUT,
     REASON_CONFIRM_TIMEOUT,
     REASON_DECLINED,
     REASON_HOLD_LOST,
@@ -55,6 +56,7 @@ class SagaConfig:
     payment_max_technical_retries: int = 3
     payment_reconcile_deadline_seconds: int = 900
     confirm_deadline_seconds: int = 120
+    cancel_deadline_seconds: int = 120
     manual_review_hold_ttl_seconds: int = 86400
     backoff_base_seconds: float = 0.5
     backoff_max_seconds: float = 30.0
@@ -333,6 +335,9 @@ class SagaEngine:
         return self._transition(reservation, CANCELLED, REASON_HOLD_LOST_REFUNDED)
 
     def _on_cancelling(self, reservation: Reservation) -> Reservation:
+        if self._elapsed(reservation) >= self.config.cancel_deadline_seconds:
+            self._release_quietly(reservation.id)
+            return self._transition(reservation, MANUAL_REVIEW, REASON_CANCEL_TIMEOUT)
         try:
             self.availability.release_hold(reservation.id)
         except (HoldNotFound, HoldExpired):
