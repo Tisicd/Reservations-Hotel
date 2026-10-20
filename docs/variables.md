@@ -20,6 +20,46 @@ actualizan cuando se añade o cambia una variable.
 | `NOTIFICATION_DB_PASSWORD` | postgres (init) | Sí | Contraseña del rol `notification` (dueño de `notification_db`) |
 | `POSTGRES_DEV_PORT` | compose (dev) | No (default `5433`) | Puerto loopback del PostgreSQL en el perfil dev (`compose.dev.yaml`) |
 
+## customer-service
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `DB_HOST` | No | `127.0.0.1` | Host de PostgreSQL (en compose: `postgres`) |
+| `DB_PORT` | No | `5433` | Puerto de PostgreSQL (en compose: `5432`) |
+| `DB_NAME` | No | `customer_db` | Base de datos |
+| `DB_USER` | No | `customer` | Rol dueño de la BD |
+| `DB_PASSWORD` | No | (vacío) | Contraseña en texto (solo para pruebas locales) |
+| `DB_PASSWORD_FILE` | No | (vacío) | Ruta al archivo con la contraseña (Docker secret `/run/secrets/customer_db_password`) |
+| `DB_POOL_SIZE` | No | `5` | Conexiones del pool |
+| `DB_POOL_TIMEOUT` | No | `5` | Segundos de espera por conexión del pool |
+| `LOG_LEVEL` | No | `INFO` | Nivel de log (JSON en stdout) |
+
+## hotel-service
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `DB_HOST` | No | `127.0.0.1` | Host de PostgreSQL (en compose: `postgres`) |
+| `DB_PORT` | No | `5433` | Puerto de PostgreSQL (en compose: `5432`) |
+| `DB_NAME` | No | `hotel_db` | Base de datos |
+| `DB_USER` | No | `hotel` | Rol dueño de la BD |
+| `DB_PASSWORD` | No | (vacío) | Contraseña en texto (solo para pruebas locales) |
+| `DB_PASSWORD_FILE` | No | (vacío) | Ruta al archivo con la contraseña (Docker secret `/run/secrets/hotel_db_password`) |
+| `DB_POOL_SIZE` | No | `5` | Conexiones del pool |
+| `DB_POOL_TIMEOUT` | No | `5` | Segundos de espera por conexión del pool |
+| `LOG_LEVEL` | No | `INFO` | Nivel de log (JSON en stdout) |
+
+## Siembra (`scripts/seed.py`)
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `HOTEL_URL` | No | `http://127.0.0.1:8105` | Base del hotel-service para la siembra |
+| `CUSTOMER_URL` | No | `http://127.0.0.1:8104` | Base del customer-service para la siembra |
+| `AVAILABILITY_URL` | No | `http://127.0.0.1:8101` | Base del availability-service para cargar inventario |
+
+La siembra es idempotente: hoteles/habitaciones usan UUID deterministas
+(`uuid5`), el inventario se fija con `PUT` y los ids de clientes se guardan en
+`secrets/seed.json` (ignorado por Git; `make clean-all` lo borra).
+
 ## availability-service
 
 | Variable | Obligatoria | Default | Descripción |

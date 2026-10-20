@@ -10,12 +10,30 @@ volumes:
   pgdata:
 
 secrets:
+  customer_db_password:
+    file: secrets/customer_db_password.txt
+  hotel_db_password:
+    file: secrets/hotel_db_password.txt
   availability_db_password:
     file: secrets/availability_db_password.txt
   payment_db_password:
     file: secrets/payment_db_password.txt
   reservation_db_password:
     file: secrets/reservation_db_password.txt
+
+x-customer-env: &customer-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: customer_db
+  DB_USER: customer
+  DB_PASSWORD_FILE: /run/secrets/customer_db_password
+
+x-hotel-env: &hotel-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: hotel_db
+  DB_USER: hotel
+  DB_PASSWORD_FILE: /run/secrets/hotel_db_password
 
 x-availability-env: &availability-env
   DB_HOST: postgres
@@ -62,6 +80,111 @@ x-reservation-env: &reservation-env
   MAX_NIGHTS: "30"
 
 services:
+  customer-migrate:
+    build: ./services/customer
+    image: customer:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *customer-env
+    secrets:
+      - customer_db_password
+    networks:
+      - data-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: "no"
+
+  customer:
+    build: ./services/customer
+    image: customer:local
+    init: true
+    environment: *customer-env
+    secrets:
+      - customer_db_password
+    networks:
+      - backend-net
+      - data-net
+    depends_on:
+      customer-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  hotel-migrate:
+    build: ./services/hotel
+    image: hotel:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *hotel-env
+    secrets:
+      - hotel_db_password
+    networks:
+      - data-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: "no"
+
+  hotel:
+    build: ./services/hotel
+    image: hotel:local
+    init: true
+    environment: *hotel-env
+    secrets:
+      - hotel_db_password
+    networks:
+      - backend-net
+      - data-net
+    depends_on:
+      hotel-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
   postgres:
     image: postgres:16
     environment:

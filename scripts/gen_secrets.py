@@ -5,6 +5,8 @@ SECRETS_DIR = ROOT / "secrets"
 
 # nombre de archivo en secrets/ -> clave en .env
 MAPPING = {
+    "customer_db_password.txt": "CUSTOMER_DB_PASSWORD",
+    "hotel_db_password.txt": "HOTEL_DB_PASSWORD",
     "availability_db_password.txt": "AVAILABILITY_DB_PASSWORD",
     "payment_db_password.txt": "PAYMENT_DB_PASSWORD",
     "reservation_db_password.txt": "RESERVATION_DB_PASSWORD",

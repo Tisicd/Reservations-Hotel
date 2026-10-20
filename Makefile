@@ -1,4 +1,4 @@
-.PHONY: up down test lint clean clean-all secrets deps snapshot-availability snapshot-payment snapshot-reservation
+.PHONY: up down test lint clean clean-all secrets deps seed invariants e2e snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel
 
 PYTHON ?= python
 VENV := .venv
@@ -31,10 +31,13 @@ clean:
 
 clean-all:
 	docker compose down -v
+	$(PYTHON) -c "import pathlib; pathlib.Path('secrets/seed.json').unlink(missing_ok=True)"
 
 lint: deps
 	docker compose config -q
 	docker compose -f compose.yaml -f compose.dev.yaml config -q
+	cd services/customer && $(CURDIR)/$(VENV_PY) -m ruff check .
+	cd services/hotel && $(CURDIR)/$(VENV_PY) -m ruff check .
 	cd services/availability && $(CURDIR)/$(VENV_PY) -m ruff check .
 	cd services/availability && $(CURDIR)/$(LINT_IMPORTS)
 	cd services/payment && $(CURDIR)/$(VENV_PY) -m ruff check .
@@ -47,6 +50,8 @@ test: deps
 	$(VENV_PY) -m pytest tests/infra
 	cd services/availability && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/payment && $(CURDIR)/$(VENV_PY) -m pytest
+	cd services/customer && $(CURDIR)/$(VENV_PY) -m pytest
+	cd services/hotel && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/reservation && $(CURDIR)/$(VENV_PY) -m pytest
 
 snapshot-availability: deps
@@ -57,3 +62,18 @@ snapshot-payment: deps
 
 snapshot-reservation: deps
 	cd services/reservation && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py
+
+seed: deps
+	$(VENV_PY) scripts/seed.py
+
+invariants: deps
+	$(VENV_PY) tests/invariants/checker.py --grace 60
+
+e2e: deps
+	$(VENV_PY) -m pytest tests/e2e -q
+
+snapshot-customer: deps
+	cd services/customer && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py
+
+snapshot-hotel: deps
+	cd services/hotel && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py

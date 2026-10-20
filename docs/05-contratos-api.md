@@ -48,6 +48,10 @@ Todo lo demás (holds, inventario, pagos, `POST /notifications`, altas de hotele
 | `GET /rooms/{id}` | → `200 {id, hotel_id, name, capacity, price_per_night_cents, currency}` · `404` |
 | `POST /hotels`, `POST /hotels/{id}/rooms` *(interno)* | alta de datos maestros → `201` |
 
+Los dos `POST` internos aceptan un `id` (UUID) **opcional** para siembras
+deterministas: mismo `id` con el mismo contenido → `200`; mismo `id` con otro
+contenido → `409 ID_CONFLICT`.
+
 ## 5. availability-service
 **Lectura** (escala con réplicas, tolera datos ligeramente desactualizados):
 | Método y ruta | Respuesta |
