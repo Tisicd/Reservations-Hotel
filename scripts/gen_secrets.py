@@ -7,6 +7,7 @@ SECRETS_DIR = ROOT / "secrets"
 MAPPING = {
     "availability_db_password.txt": "AVAILABILITY_DB_PASSWORD",
     "payment_db_password.txt": "PAYMENT_DB_PASSWORD",
+    "reservation_db_password.txt": "RESERVATION_DB_PASSWORD",
 }
 
 
