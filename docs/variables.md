@@ -18,7 +18,7 @@ actualizan cuando se añade o cambia una variable.
 | `RESERVATION_DB_PASSWORD` | postgres (init) | Sí | Contraseña del rol `reservation` (dueño de `reservation_db`) |
 | `PAYMENT_DB_PASSWORD` | postgres (init) | Sí | Contraseña del rol `payment` (dueño de `payment_db`) |
 | `NOTIFICATION_DB_PASSWORD` | postgres (init) | Sí | Contraseña del rol `notification` (dueño de `notification_db`) |
-| `PG_DEV_PORT` | compose (dev) | No (default `5433`) | Puerto loopback del PostgreSQL en el perfil dev (`compose.dev.yaml`) |
+| `POSTGRES_DEV_PORT` | compose (dev) | No (default `5433`) | Puerto loopback del PostgreSQL en el perfil dev (`compose.dev.yaml`) |
 
 ## Convenciones
 
