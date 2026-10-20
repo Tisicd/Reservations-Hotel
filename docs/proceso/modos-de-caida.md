@@ -24,7 +24,9 @@ tanto, qué se está midiendo.
 - **Verificación:** `RestartCount` del contenedor aumenta y el healthcheck vuelve a
   `healthy`. `init: true` garantiza que PID 1 reape los hijos; si el proceso
   principal muere, el contenedor sale y Docker lo reinicia.
-- **Prueba:** `tests/infra/test_restart.py` (`RUN_RESTART=1` con el stack arriba).
+- **Prueba:** `tests/infra/test_restart.py`, incluida en `make test`. Requiere el
+  stack arriba (`make up` previo, como hace CI); si faltan el stack o Docker la
+  prueba **falla** en lugar de omitirse.
 
 ## Healthchecks
 

@@ -1,17 +1,16 @@
-import os
+"""Modo B: el contenedor se reinicia solo y vuelve a `healthy`.
+
+Requiere el stack arriba (`make up`) y Docker operativo: CI lo garantiza. Si no
+hay stack o Docker, la prueba **falla** (no se omite) para que la garantía no
+pase inadvertida.
+"""
+
 import pathlib
 import subprocess
 import time
 
-import pytest
-
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMPOSE = ["docker", "compose", "-f", "compose.yaml", "-f", "compose.dev.yaml"]
-
-pytestmark = pytest.mark.skipif(
-    os.environ.get("RUN_RESTART") != "1",
-    reason="requiere el stack arriba; ejecutar con RUN_RESTART=1 tras `make up`",
-)
 
 
 def _cid(service: str) -> str:
