@@ -73,7 +73,7 @@ seed: deps
 invariants: deps
 	$(VENV_PY) tests/invariants/checker.py --grace 60
 
-e2e: deps
+e2e: deps seed
 	$(VENV_PY) -m pytest tests/e2e -q
 
 snapshot-customer: deps

@@ -1,5 +1,6 @@
 import datetime as dt
 import threading
+import time
 import uuid
 
 import pytest
@@ -111,12 +112,17 @@ def test_claim_due_no_procesa_dos_veces(repo):
 
     def worker():
         barrier.wait()
-        while True:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
             rows = repo.claim_due(3, 15)
-            if not rows:
-                return
+            if rows:
+                with lock:
+                    claimed.extend(r.id for r in rows)
             with lock:
-                claimed.extend(r.id for r in rows)
+                if len(claimed) >= len(ids):
+                    return
+            time.sleep(0.05)
+        raise AssertionError("no se reclamaron todas las reservas")
 
     threads = [threading.Thread(target=worker) for _ in range(2)]
     for thread in threads:
