@@ -12,6 +12,8 @@ volumes:
 secrets:
   availability_db_password:
     file: secrets/availability_db_password.txt
+  payment_db_password:
+    file: secrets/payment_db_password.txt
 
 x-availability-env: &availability-env
   DB_HOST: postgres
@@ -19,6 +21,18 @@ x-availability-env: &availability-env
   DB_NAME: availability_db
   DB_USER: availability
   DB_PASSWORD_FILE: /run/secrets/availability_db_password
+
+x-payment-env: &payment-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: payment_db
+  DB_USER: payment
+  DB_PASSWORD_FILE: /run/secrets/payment_db_password
+  PAYMENT_SIMULATION_ENABLED: "false"
+  PROVIDER_TIMEOUT_SECONDS: "3"
+  PROVIDER_SLOW_SECONDS: "6"
+  RECONCILE_INTERVAL_SECONDS: "5"
+  RECONCILE_MIN_AGE_SECONDS: "2"
 
 services:
   postgres:
@@ -126,6 +140,88 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import os,sys,time; p='/tmp/heartbeat'; s=int(os.environ.get('EXPIRY_INTERVAL_SECONDS','5'))*3; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<=s else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  payment-migrate:
+    build: ./services/payment
+    image: payment:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *payment-env
+    secrets:
+      - payment_db_password
+    networks:
+      - data-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: "no"
+
+  payment:
+    build: ./services/payment
+    image: payment:local
+    init: true
+    environment: *payment-env
+    secrets:
+      - payment_db_password
+    networks:
+      - backend-net
+      - data-net
+    depends_on:
+      payment-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  payment-worker:
+    build: ./services/payment
+    image: payment:local
+    init: true
+    command: ["python", "-m", "app.infrastructure.workers.reconcile"]
+    environment: *payment-env
+    secrets:
+      - payment_db_password
+    networks:
+      - data-net
+    depends_on:
+      payment-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    pids_limit: 64
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; p='/tmp/heartbeat'; s=int(os.environ.get('RECONCILE_INTERVAL_SECONDS','5'))*3; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<=s else 1)"]
       interval: 5s
       timeout: 5s
       retries: 3

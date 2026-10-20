@@ -13,3 +13,11 @@ services:
       - "127.0.0.1:8101:8000"
     networks:
       - dev-net
+
+  payment:
+    ports:
+      - "127.0.0.1:8102:8000"
+    networks:
+      - dev-net
+    environment:
+      PAYMENT_SIMULATION_ENABLED: "true"

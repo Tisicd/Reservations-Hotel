@@ -46,6 +46,30 @@ servicio lee `DB_PASSWORD_FILE` si está presente; si no, cae a `DB_PASSWORD`. E
 compose se usa el secret (`DB_PASSWORD_FILE`); en las pruebas locales el archivo
 `secrets/availability_db_password.txt` (generado por `make secrets`).
 
+## payment-service
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `DB_HOST` | No | `127.0.0.1` | Host de PostgreSQL (en compose: `postgres`) |
+| `DB_PORT` | No | `5433` | Puerto de PostgreSQL (en compose: `5432`) |
+| `DB_NAME` | No | `payment_db` | Base de datos |
+| `DB_USER` | No | `payment` | Rol dueño de la BD |
+| `DB_PASSWORD` | No | (vacío) | Contraseña en texto (solo pruebas locales) |
+| `DB_PASSWORD_FILE` | No | (vacío) | Ruta al archivo con la contraseña (Docker secret `/run/secrets/payment_db_password`) |
+| `DB_POOL_SIZE` | No | `5` | Conexiones del pool por réplica/worker |
+| `DB_POOL_TIMEOUT` | No | `2` | Segundos de espera por conexión del pool |
+| `PAYMENT_SIMULATION_ENABLED` | No | `false` | Habilita los modos `simulate` ≠ `ok`. En compose base (despliegue) es `false`; el perfil dev la activa |
+| `PROVIDER_TIMEOUT_SECONDS` | No | `3` | Timeout de la llamada al proveedor; al vencer el pago queda `UNKNOWN` |
+| `PROVIDER_SLOW_SECONDS` | No | `6` | Duración del modo `slow` (mayor que el timeout para forzar `UNKNOWN`) |
+| `RECONCILE_INTERVAL_SECONDS` | No | `5` | Intervalo del worker de reconciliación |
+| `RECONCILE_MIN_AGE_SECONDS` | No | `2` | Antigüedad mínima de un `UNKNOWN` para reconciliarlo |
+| `RECONCILE_BATCH` | No | `100` | Máximo de pagos `UNKNOWN` por barrido |
+| `WORKER_HEARTBEAT_FILE` | No | `/tmp/heartbeat` | Archivo tocado por el worker; el healthcheck falla si tiene más de `3 × RECONCILE_INTERVAL_SECONDS` |
+| `LOG_LEVEL` | No | `INFO` | Nivel de log (JSON en stdout) |
+
+En las pruebas locales el secreto se lee de `secrets/payment_db_password.txt`
+(generado por `make secrets`).
+
 ## Convenciones
 
 - Los roles y bases se crean en `scripts/init-db.sh`, que solo se ejecuta en el
