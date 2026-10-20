@@ -15,7 +15,8 @@ COMPOSE = ["docker", "compose", "-f", "compose.yaml", "-f", "compose.dev.yaml"]
 
 def _cid(service: str) -> str:
     r = subprocess.run([*COMPOSE, "ps", "-q", service], cwd=str(ROOT), capture_output=True, text=True)
-    return r.stdout.strip()
+    lines = r.stdout.strip().splitlines()
+    return lines[0] if lines else ""
 
 
 def _inspect(cid: str, fmt: str) -> str:
