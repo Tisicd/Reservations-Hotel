@@ -48,7 +48,7 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     PAYMENT_DECLINED: frozenset({CANCELLED}),
     REFUND_REQUIRED: frozenset({CANCELLED, MANUAL_REVIEW}),
     CONFIRMED: frozenset({CANCELLING}),
-    CANCELLING: frozenset({CANCELLED}),
+    CANCELLING: frozenset({CANCELLED, MANUAL_REVIEW}),
     CANCELLED: frozenset(),
     REJECTED_NO_INVENTORY: frozenset(),
     FAILED_TECHNICAL: frozenset(),

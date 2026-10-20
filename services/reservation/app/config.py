@@ -33,6 +33,7 @@ class Settings:
     payment_max_technical_retries: int
     payment_reconcile_deadline_seconds: int
     confirm_deadline_seconds: int
+    cancel_deadline_seconds: int
     manual_review_hold_ttl_seconds: int
     backoff_base_seconds: float
     backoff_max_seconds: float
@@ -58,6 +59,7 @@ class Settings:
             payment_max_technical_retries=self.payment_max_technical_retries,
             payment_reconcile_deadline_seconds=self.payment_reconcile_deadline_seconds,
             confirm_deadline_seconds=self.confirm_deadline_seconds,
+            cancel_deadline_seconds=self.cancel_deadline_seconds,
             manual_review_hold_ttl_seconds=self.manual_review_hold_ttl_seconds,
             backoff_base_seconds=self.backoff_base_seconds,
             backoff_max_seconds=self.backoff_max_seconds,
@@ -98,6 +100,7 @@ def load_settings() -> Settings:
             os.environ.get("PAYMENT_RECONCILE_DEADLINE_SECONDS", "900")
         ),
         confirm_deadline_seconds=int(os.environ.get("CONFIRM_DEADLINE_SECONDS", "120")),
+        cancel_deadline_seconds=int(os.environ.get("CANCEL_DEADLINE_SECONDS", "120")),
         manual_review_hold_ttl_seconds=int(
             os.environ.get("MANUAL_REVIEW_HOLD_TTL_SECONDS", "86400")
         ),

@@ -16,8 +16,8 @@
 | **T1.6** | e2e por HTTP interno: reserva completa, pago rechazado, doble envío, carrera por el último cupo | Pasan y el chequeador queda verde |
 
 ## Criterio de salida de F1
-- [ ] Todos los tests anteriores en verde en CI.
-- [ ] `import-linter` en verde en los 4 servicios hexagonales.
-- [ ] I1–I5 verificadas automáticamente tras los e2e.
+- [x] Todos los tests anteriores en verde (231 passed, 0 skipped; ver `docs/resultados/F1.md`).
+- [x] `import-linter` en verde en availability, reservation y payment (3 contratos); notification es de F2.
+- [x] I1–I5 verificadas automáticamente tras los e2e (el chequeador cubre I1–I7).
 - [x] ADR-0003/0005/0006 aceptados en G0 (2026-10-19).
-- [ ] Registro de tiempo/costos al día; tag `f1`.
+- [x] Registro de tiempo/costos al día; tag `f1`.

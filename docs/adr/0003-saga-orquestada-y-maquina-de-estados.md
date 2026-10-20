@@ -22,6 +22,12 @@ Una reserva toca tres servicios (`availability`, `payment`, y `customer`/`hotel`
 | `PAYMENT_DECLINED` | `availability.release` | → `CANCELLED` |
 | `REFUND_REQUIRED` | `payment.refund` | → `CANCELLED` |
 | `CONFIRMED` + cancelar | persistir `CANCELLING` → release + refund | → `CANCELLED` |
+| `CANCELLING` | release (idempotente) + refund | OK → `CANCELLED` + evento outbox; al vencer `CANCEL_DEADLINE_SECONDS` → `MANUAL_REVIEW` (`reason=CANCEL_TIMEOUT`): **no** se asume si hubo reembolso |
+
+Nota (PASO 0 de T1.4): todo plazo agotado con dinero o inventario en duda
+termina en `MANUAL_REVIEW`; es el único estado estable que admite un hold
+extendido y una resolución humana. Aplica a `PAYMENT_UNKNOWN`,
+`REFUND_REQUIRED`, `PAID` (confirmación) y `CANCELLING`.
 
 Cambios respecto a F0: se elimina `HOLD_REQUESTED` (es `RECEIVED`: el estado se persiste antes de llamar y la llamada es idempotente) y se añade `CANCELLING`.
 

@@ -20,6 +20,63 @@ actualizan cuando se añade o cambia una variable.
 | `NOTIFICATION_DB_PASSWORD` | postgres (init) | Sí | Contraseña del rol `notification` (dueño de `notification_db`) |
 | `POSTGRES_DEV_PORT` | compose (dev) | No (default `5433`) | Puerto loopback del PostgreSQL en el perfil dev (`compose.dev.yaml`) |
 
+## customer-service
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `DB_HOST` | No | `127.0.0.1` | Host de PostgreSQL (en compose: `postgres`) |
+| `DB_PORT` | No | `5433` | Puerto de PostgreSQL (en compose: `5432`) |
+| `DB_NAME` | No | `customer_db` | Base de datos |
+| `DB_USER` | No | `customer` | Rol dueño de la BD |
+| `DB_PASSWORD` | No | (vacío) | Contraseña en texto (solo para pruebas locales) |
+| `DB_PASSWORD_FILE` | No | (vacío) | Ruta al archivo con la contraseña (Docker secret `/run/secrets/customer_db_password`) |
+| `DB_POOL_SIZE` | No | `5` | Conexiones del pool |
+| `DB_POOL_TIMEOUT` | No | `5` | Segundos de espera por conexión del pool |
+| `LOG_LEVEL` | No | `INFO` | Nivel de log (JSON en stdout) |
+
+## hotel-service
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `DB_HOST` | No | `127.0.0.1` | Host de PostgreSQL (en compose: `postgres`) |
+| `DB_PORT` | No | `5433` | Puerto de PostgreSQL (en compose: `5432`) |
+| `DB_NAME` | No | `hotel_db` | Base de datos |
+| `DB_USER` | No | `hotel` | Rol dueño de la BD |
+| `DB_PASSWORD` | No | (vacío) | Contraseña en texto (solo para pruebas locales) |
+| `DB_PASSWORD_FILE` | No | (vacío) | Ruta al archivo con la contraseña (Docker secret `/run/secrets/hotel_db_password`) |
+| `DB_POOL_SIZE` | No | `5` | Conexiones del pool |
+| `DB_POOL_TIMEOUT` | No | `5` | Segundos de espera por conexión del pool |
+| `LOG_LEVEL` | No | `INFO` | Nivel de log (JSON en stdout) |
+
+## Siembra (`scripts/seed.py`)
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `HOTEL_URL` | No | `http://127.0.0.1:8105` | Base del hotel-service para la siembra |
+| `CUSTOMER_URL` | No | `http://127.0.0.1:8104` | Base del customer-service para la siembra |
+| `AVAILABILITY_URL` | No | `http://127.0.0.1:8101` | Base del availability-service para cargar inventario |
+
+La siembra es idempotente: hoteles/habitaciones usan UUID deterministas
+(`uuid5`), el inventario se fija con `PUT` y los ids de clientes se guardan en
+`secrets/seed.json` (ignorado por Git; `make clean-all` lo borra).
+
+## Chequeador de invariantes (`tests/invariants/checker.py`)
+
+Se conecta como superusuario en modo **solo lectura** a `availability_db`,
+`reservation_db` y `payment_db` para verificar I1-I7.
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `POSTGRES_HOST` | No | `127.0.0.1` | Host de PostgreSQL para el chequeador |
+| `POSTGRES_DEV_PORT` | No | `5433` | Puerto loopback de PostgreSQL (perfil dev) |
+| `POSTGRES_USER` | No | `postgres` | Rol superusuario (lectura de las tres BDs) |
+| `POSTGRES_PASSWORD` | No | (vacío) | Contraseña; alternativa al archivo |
+| `POSTGRES_PASSWORD_FILE` | No | `secrets/postgres_password.txt` | Archivo con la contraseña (lo genera `make secrets`) |
+
+`make invariants` ejecuta el chequeador con `--grace 60` y devuelve código 1 si
+hay violaciones. Los tests de inyección (`tests/invariants/test_checker.py`)
+hacen `TRUNCATE` de las tres BDs de desarrollo antes de cada caso.
+
 ## availability-service
 
 | Variable | Obligatoria | Default | Descripción |
@@ -95,6 +152,7 @@ En las pruebas locales el secreto se lee de `secrets/payment_db_password.txt`
 | `PAYMENT_MAX_TECHNICAL_RETRIES` | No | `3` | Intentos técnicos antes de `PAYMENT_DECLINED(TECHNICAL)` |
 | `PAYMENT_RECONCILE_DEADLINE_SECONDS` | No | `900` | Plazo de reconciliación de `PAYMENT_UNKNOWN` |
 | `CONFIRM_DEADLINE_SECONDS` | No | `120` | Plazo para confirmar el hold estando `PAID` |
+| `CANCEL_DEADLINE_SECONDS` | No | `120` | Plazo para liberar y reembolsar en `CANCELLING`; al vencer ⇒ `MANUAL_REVIEW` |
 | `MANUAL_REVIEW_HOLD_TTL_SECONDS` | No | `86400` | Extensión del hold al pasar a `MANUAL_REVIEW` |
 | `BACKOFF_BASE_SECONDS` | No | `0.5` | Base del backoff exponencial |
 | `BACKOFF_MAX_SECONDS` | No | `30` | Tope del backoff |
