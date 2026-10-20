@@ -8,34 +8,13 @@ services:
     networks:
       - dev-net
 
-  customer:
-    ports:
-      - "127.0.0.1:8104:8000"
-    networks:
-      - dev-net
-
-  hotel:
-    ports:
-      - "127.0.0.1:8105:8000"
-    networks:
-      - dev-net
-
-  availability:
-    ports:
-      - "127.0.0.1:8101:8000"
-    networks:
-      - dev-net
-
   payment:
-    ports:
-      - "127.0.0.1:8102:8000"
     networks:
       - dev-net
     environment:
       PAYMENT_SIMULATION_ENABLED: "true"
 
-  reservation:
-    ports:
-      - "127.0.0.1:8103:8000"
-    networks:
-      - dev-net
+  gateway:
+    ports: !override
+      - "127.0.0.1:${GATEWAY_DEV_PORT:-8088}:8080"
+      - "127.0.0.1:8081:8081"

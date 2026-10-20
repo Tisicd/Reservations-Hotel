@@ -19,6 +19,22 @@ Decisiones en `docs/adr/`. Negocio, invariantes y modos de fallo en `docs/fases/
 ```
 Solo el gateway publica puertos. Los workers usan la misma imagen que su API con otro comando.
 
+### 1.1 Matriz de puertos (host -> contenedor)
+
+| Origen | Destino | Host | Contenedor | Exposición |
+|---|---|---|---|---|
+| navegador/tests | gateway público | `8080` (despliegue) o `127.0.0.1:8088` (dev, `GATEWAY_DEV_PORT`) | `8080` | público |
+| operador local | gateway administrativo | `127.0.0.1:8081` | `8081` | solo loopback |
+| host dev | PostgreSQL | `127.0.0.1:5433` (`POSTGRES_DEV_PORT`) | `5432` | solo loopback |
+| contenedores | customer, hotel, availability x3, reservation, payment, notification | no publicado | `8000` | `backend-net` |
+| workers | -- | no publicado | -- | `backend-net` / `data-net` |
+
+Regla: el frontend y los clientes externos usan **solo** el gateway; semillas,
+pruebas y caos pueden usar el listener administrativo en loopback. Ningún
+servicio de aplicación publica puertos. Tras recrear contenedores,
+`make gateway-refresh` (usado por `test`, `e2e` y `smoke`) reinicia nginx para
+no conservar IPs viejas; el `resolver` tiene TTL de 2 s.
+
 ## 2. Estilo
 Microservicios + **hexagonal ligera** donde hay lógica de negocio (ADR-0001). Dos formas de servicio:
 

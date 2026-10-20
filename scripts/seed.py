@@ -12,9 +12,10 @@ import uuid
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "secrets" / "seed.json"
 
-HOTEL_URL = os.getenv("HOTEL_URL", "http://127.0.0.1:8105").rstrip("/")
-CUSTOMER_URL = os.getenv("CUSTOMER_URL", "http://127.0.0.1:8104").rstrip("/")
-AVAILABILITY_URL = os.getenv("AVAILABILITY_URL", "http://127.0.0.1:8101").rstrip("/")
+ADMIN_URL = os.getenv("GATEWAY_ADMIN_URL", "http://127.0.0.1:8081").rstrip("/")
+HOTEL_URL = os.getenv("HOTEL_URL", f"{ADMIN_URL}/svc/hotel").rstrip("/")
+CUSTOMER_URL = os.getenv("CUSTOMER_URL", f"{ADMIN_URL}/svc/customer").rstrip("/")
+AVAILABILITY_URL = os.getenv("AVAILABILITY_URL", f"{ADMIN_URL}/svc/availability").rstrip("/")
 
 DAYS = 60
 UNITS_PER_NIGHT = 5

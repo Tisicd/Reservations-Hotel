@@ -1,4 +1,4 @@
-.PHONY: up up-dev down test lint clean clean-all secrets deps seed invariants e2e snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel
+.PHONY: up up-dev down test lint clean clean-all secrets deps seed invariants e2e smoke gateway-refresh snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel snapshot-notification
 
 PYTHON ?= python
 VENV := .venv
@@ -26,6 +26,13 @@ up: secrets
 up-dev: secrets
 	$(COMPOSE_DEV) up -d --build --wait
 
+# Tras recrear contenedores, nginx puede conservar IPs viejas hasta el TTL del
+# resolver. Reiniciarlo deja el stack determinista para pruebas y smoke.
+gateway-refresh:
+	$(COMPOSE_DEV) up -d --wait
+	$(COMPOSE_DEV) restart gateway
+	$(COMPOSE_DEV) up -d --wait gateway
+
 down:
 	docker compose down
 
@@ -47,9 +54,10 @@ lint: deps
 	cd services/payment && $(CURDIR)/$(LINT_IMPORTS)
 	cd services/reservation && $(CURDIR)/$(VENV_PY) -m ruff check .
 	cd services/reservation && $(CURDIR)/$(LINT_IMPORTS)
+	cd services/notification && $(CURDIR)/$(VENV_PY) -m ruff check .
+	cd services/notification && $(CURDIR)/$(LINT_IMPORTS)
 
-test: deps
-	$(COMPOSE_DEV) up -d --wait postgres availability availability-worker payment payment-worker reservation
+test: deps gateway-refresh
 	$(VENV_PY) -m pytest tests/infra
 	-$(COMPOSE_DEV) stop availability-worker payment-worker reservation-worker
 	cd services/availability && $(CURDIR)/$(VENV_PY) -m pytest
@@ -57,6 +65,7 @@ test: deps
 	cd services/customer && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/hotel && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/reservation && $(CURDIR)/$(VENV_PY) -m pytest
+	cd services/notification && $(CURDIR)/$(VENV_PY) -m pytest
 	$(VENV_PY) -m pytest tests/invariants
 
 snapshot-availability: deps
@@ -74,11 +83,17 @@ seed: deps
 invariants: deps
 	$(VENV_PY) tests/invariants/checker.py --grace 60
 
-e2e: up-dev seed
+e2e: up-dev gateway-refresh seed
 	$(VENV_PY) -m pytest tests/e2e -q
+
+smoke: deps gateway-refresh
+	$(VENV_PY) -m pytest tests/infra/test_gateway.py -q
 
 snapshot-customer: deps
 	cd services/customer && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py
 
 snapshot-hotel: deps
 	cd services/hotel && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py
+
+snapshot-notification: deps
+	cd services/notification && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py

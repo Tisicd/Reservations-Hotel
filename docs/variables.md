@@ -52,9 +52,10 @@ actualizan cuando se añade o cambia una variable.
 
 | Variable | Obligatoria | Default | Descripción |
 |---|---|---|---|
-| `HOTEL_URL` | No | `http://127.0.0.1:8105` | Base del hotel-service para la siembra |
-| `CUSTOMER_URL` | No | `http://127.0.0.1:8104` | Base del customer-service para la siembra |
-| `AVAILABILITY_URL` | No | `http://127.0.0.1:8101` | Base del availability-service para cargar inventario |
+| `GATEWAY_ADMIN_URL` | No | `http://127.0.0.1:8081` | Base del listener administrativo del gateway |
+| `HOTEL_URL` | No | `http://127.0.0.1:8081/svc/hotel` | Base del hotel-service para la siembra |
+| `CUSTOMER_URL` | No | `http://127.0.0.1:8081/svc/customer` | Base del customer-service para la siembra |
+| `AVAILABILITY_URL` | No | `http://127.0.0.1:8081/svc/availability` | Base del availability-service para cargar inventario |
 
 La siembra es idempotente: hoteles/habitaciones usan UUID deterministas
 (`uuid5`), el inventario se fija con `PUT` y los ids de clientes se guardan en
@@ -153,6 +154,11 @@ En las pruebas locales el secreto se lee de `secrets/payment_db_password.txt`
 | `PAYMENT_RECONCILE_DEADLINE_SECONDS` | No | `900` | Plazo de reconciliación de `PAYMENT_UNKNOWN` |
 | `CONFIRM_DEADLINE_SECONDS` | No | `120` | Plazo para confirmar el hold estando `PAID` |
 | `CANCEL_DEADLINE_SECONDS` | No | `120` | Plazo para liberar y reembolsar en `CANCELLING`; al vencer ⇒ `MANUAL_REVIEW` |
+| `NOTIFICATION_URL` | No | `http://notification:8000` | Base URL del notification-service para el relay del outbox |
+| `NOTIFICATION_READ_TIMEOUT_SECONDS` | No | `3` | Timeout del `POST /notifications`; al vencer se reintenta (idempotente por `event_id`) |
+| `RELAY_INTERVAL_SECONDS` | No | `1` | Intervalo de barrido del relay (`reservation-relay`) |
+| `RELAY_BATCH` | No | `20` | Eventos reclamados por barrido |
+| `RELAY_LEASE_SECONDS` | No | `30` | Lease del claim: `next_attempt_at = now() + lease`; evita que dos relays tomen el mismo evento |
 | `MANUAL_REVIEW_HOLD_TTL_SECONDS` | No | `86400` | Extensión del hold al pasar a `MANUAL_REVIEW` |
 | `BACKOFF_BASE_SECONDS` | No | `0.5` | Base del backoff exponencial |
 | `BACKOFF_MAX_SECONDS` | No | `30` | Tope del backoff |
@@ -165,6 +171,47 @@ En las pruebas locales el secreto se lee de `secrets/payment_db_password.txt`
 
 En las pruebas locales el secreto se lee de `secrets/reservation_db_password.txt`
 (generado por `make secrets`).
+
+## notification-service
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `DB_HOST` | No | `127.0.0.1` | Host de PostgreSQL (en compose: `postgres`) |
+| `DB_PORT` | No | `5433` | Puerto de PostgreSQL (en compose: `5432`) |
+| `DB_NAME` | No | `notification_db` | Base de datos |
+| `DB_USER` | No | `notification` | Rol dueño de la BD |
+| `DB_PASSWORD` | No | (vacío) | Contraseña en texto (solo pruebas locales) |
+| `DB_PASSWORD_FILE` | No | (vacío) | Ruta al archivo con la contraseña (Docker secret `/run/secrets/notification_db_password`) |
+| `DB_POOL_SIZE` | No | `5` | Conexiones del pool por réplica/worker |
+| `DB_POOL_TIMEOUT` | No | `2` | Segundos de espera por conexión del pool |
+| `NOTIFICATION_MAX_ATTEMPTS` | No | `5` | Intentos del worker de entrega antes de marcar `FAILED` |
+| `NOTIFICATION_BACKOFF_BASE_SECONDS` | No | `1` | Base del backoff del worker |
+| `NOTIFICATION_BACKOFF_MAX_SECONDS` | No | `30` | Tope del backoff del worker |
+| `NOTIFICATION_LEASE_SECONDS` | No | `30` | Lease del claim de notificaciones `PENDING` |
+| `NOTIFICATION_WORKER_INTERVAL_SECONDS` | No | `1` | Intervalo de barrido del worker |
+| `NOTIFICATION_WORKER_BATCH` | No | `20` | Notificaciones por barrido |
+| `WORKER_HEARTBEAT_FILE` | No | `/tmp/heartbeat` | Lo toca el worker; el healthcheck falla si se queda atrás |
+| `LOG_LEVEL` | No | `INFO` | Nivel de log (JSON en stdout) |
+
+El worker de entrega usa `LogChannel` (canal simulado) en esta fase; sustituirlo
+por un proveedor real no cambia la API ni el inbox idempotente.
+
+## gateway (nginx)
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `GATEWAY_DEV_PORT` | No | `8088` | Puerto loopback del listener público en el perfil dev (`compose.dev.yaml`). En despliegue se publica `8080` |
+| `GATEWAY_URL` | No | `http://127.0.0.1:8088` | Base pública que usan los tests E2E (`tests/e2e`) |
+| `GATEWAY_ADMIN_URL` | No | `http://127.0.0.1:8081` | Base administrativa (semillas, pruebas, caos) |
+
+Solo el gateway publica puertos. El listener administrativo escucha `:8081`
+dentro del contenedor pero Compose lo publica únicamente en `127.0.0.1`. El
+listener público se publica en `8080` en despliegue y en `127.0.0.1:8088` en dev
+(este equipo ya usa `8080` para otro proceso). `limit_req` es 50 r/s con burst
+50 por IP; el `resolver` de Docker usa TTL de 2 s. `proxy_next_upstream`
+solo se activa en lecturas y escrituras idempotentes (availability) y se desactiva
+en reservas, clientes y admin de payment/hotel/customer/reservation. El balanceo de
+`availability` usa tres réplicas.
 
 ## Convenciones
 
