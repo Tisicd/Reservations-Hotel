@@ -88,14 +88,14 @@ def test_timeout_es_ambiguo_y_conexion_rechazada_no():
     assert exc.value.ambiguous is False
 
 
-def test_503_no_es_ambiguo():
+def test_503_es_ambiguo():
     customer = _client(
         HttpCustomerClient,
         lambda request: _error("DEPENDENCY_UNAVAILABLE", 503),
     )
     with pytest.raises(DependencyUnavailable) as exc:
         customer.exists(uuid.uuid4())
-    assert exc.value.ambiguous is False
+    assert exc.value.ambiguous is True
 
 
 def test_post_no_se_reintenta():

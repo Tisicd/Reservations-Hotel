@@ -29,7 +29,7 @@ def _code(response: httpx.Response) -> str | None:
 def _unavailable(response: httpx.Response) -> DependencyUnavailable:
     return DependencyUnavailable(
         f"{response.request.method} {response.request.url.path} -> {response.status_code}",
-        ambiguous=False,
+        ambiguous=response.status_code >= 500,
     )
 
 
@@ -64,18 +64,21 @@ class HttpJson:
             raise DependencyUnavailable(str(e), ambiguous=True) from e
 
     def get(self, path: str, params: dict | None = None) -> httpx.Response:
+        last: DependencyUnavailable | None = None
         for attempt in range(GET_RETRIES):
             try:
                 response = self._request("GET", path, params=params)
-            except DependencyUnavailable:
-                if attempt == GET_RETRIES - 1:
-                    raise
+            except DependencyUnavailable as e:
+                last = e
             else:
                 if response.status_code < 500:
                     return response
+                last = _unavailable(response)
             if attempt < GET_RETRIES - 1:
                 time.sleep(0.05 * (2**attempt))
-        raise DependencyUnavailable("sin respuesta válida", ambiguous=False)
+        if last is None:
+            raise DependencyUnavailable("sin respuesta válida", ambiguous=True)
+        raise last
 
     def post(
         self, path: str, json: dict | None = None, headers: dict | None = None
