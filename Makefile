@@ -37,3 +37,4 @@ lint: deps
 test: deps
 	$(COMPOSE_DEV) up -d --wait postgres
 	$(VENV_PY) -m pytest tests/infra
+	cd services/availability && $(CURDIR)/$(VENV_PY) -m pytest
