@@ -16,3 +16,10 @@ Plataforma de reservas de hoteles basada en 6 microservicios Docker, con foco en
 
 ## Comandos (disponibles desde F1)
 `make up` · `make test` · `make chaos` · `make perf` · `make report` · `make down` · `make clean`
+
+## Despliegue rápido (desde cero)
+1. `make build` — construye las 6 imágenes `:local` (aprovecha caché de capas).
+2. `make up` — levanta el stack sin reconstruir (falla con `make build` si falta alguna imagen).
+3. `make seed` — siembra datos iniciales (`secrets/seed.json`).
+
+Luego `make test`, `make e2e`, `make smoke` o `make invariants`.

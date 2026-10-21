@@ -16,6 +16,7 @@ TRUNCATE = {
     "availability_db": "TRUNCATE inventory, holds",
     "reservation_db": "TRUNCATE reservation_events, outbox, reservations",
     "payment_db": "TRUNCATE ledger, payment_attempts, payments",
+    "notification_db": "TRUNCATE notifications",
 }
 
 TYPE_CREATED = uuid.UUID("6b4a1e0e-0000-4000-8000-000000000001")

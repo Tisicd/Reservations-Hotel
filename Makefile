@@ -78,7 +78,7 @@ lint: deps
 
 test: deps ensure-images gateway-refresh
 	$(VENV_PY) -m pytest tests/infra
-	-$(COMPOSE_DEV) stop availability-worker payment-worker reservation-worker
+	-$(COMPOSE_DEV) stop availability-worker payment-worker reservation-worker notification-worker
 	cd services/availability && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/payment && $(CURDIR)/$(VENV_PY) -m pytest
 	cd services/customer && $(CURDIR)/$(VENV_PY) -m pytest

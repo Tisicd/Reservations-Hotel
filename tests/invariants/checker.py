@@ -23,7 +23,9 @@ from app.domain.state_machine import (  # noqa: E402
     STABLE_STATES,
 )
 
-DATABASES = ("availability_db", "reservation_db", "payment_db")
+DATABASES = ("availability_db", "reservation_db", "payment_db", "notification_db")
+
+OUTBOX_BACKLOG_OLD_SECONDS = int(os.environ.get("OUTBOX_BACKLOG_OLD_SECONDS", "300"))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -336,6 +338,30 @@ def check_payment(conn: sa.Connection) -> list[Violation]:
     return violations
 
 
+def check_outbox_backlog_old(conn: sa.Connection) -> list[Violation]:
+    violations = []
+    rows = conn.execute(
+        sa.text(
+            """
+            SELECT count(*) FROM notifications
+            WHERE status = 'PENDING'
+              AND created_at < now() - make_interval(secs => :threshold)
+            """
+        ),
+        {"threshold": OUTBOX_BACKLOG_OLD_SECONDS},
+    )
+    count = rows.scalar_one()
+    if count:
+        violations.append(
+            Violation(
+                "OUTBOX_BACKLOG_OLD",
+                "ALARM",
+                f"outbox pendiente y viejo: {count} eventos con > {OUTBOX_BACKLOG_OLD_SECONDS}s sin entregar",
+            )
+        )
+    return violations
+
+
 def check_cross(conns: dict[str, sa.Connection], grace_seconds: int = 60) -> list[Violation]:
     violations = []
     reservations = {
@@ -427,7 +453,8 @@ def check_all(grace_seconds: int = 60) -> list[Violation]:
         return (
             check_availability(conns["availability_db"])
             + check_reservation(conns["reservation_db"], grace_seconds)
-            + check_payment(conns["payment_db"])
+            +             check_payment(conns["payment_db"])
+            + check_outbox_backlog_old(conns["notification_db"])
             + check_cross(conns, grace_seconds)
         )
     finally:
