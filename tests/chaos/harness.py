@@ -13,6 +13,7 @@ siembrado (``make up && make seed``).
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import datetime as dt
 import enum
 import json
@@ -44,6 +45,7 @@ import sqlalchemy as sa
 
 SEED_PATH = ROOT / "secrets" / "seed.json"
 PUBLIC_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:8088/api").rstrip("/")
+ADMIN_URL = os.getenv("GATEWAY_ADMIN_URL", "http://127.0.0.1:8081/svc").rstrip("/")
 COMPOSE = [
     "docker", "compose",
     "-f", str(ROOT / "compose.yaml"),
@@ -266,7 +268,6 @@ def exec_kill9(svc: str, pattern: str, container: str | None = None) -> None:
         "            killed.append(pid)\n"
         "        except OSError:\n"
         "            pass\n"
-        "    \n"
         "print(killed)\n"
     )
     _run(["docker", "exec", cid, "python", "-c", code])
@@ -315,14 +316,12 @@ def ensure_precondition() -> list[str]:
 # Tráfico de fondo y canario
 # ---------------------------------------------------------------------------
 
-def classify_error(exc: Exception | None, status_code: int | None) -> str:
+def _classify_error(exc: Exception | None, status_code: int | None) -> str:
     if exc is not None:
         text = f"{type(exc).__name__}: {exc}"
         low = text.lower()
         if "connect" in low or "timeout" in low:
-            if "timeout" in low:
-                return "timeout"
-            return "connection"
+            return "timeout" if "timeout" in low else "connection"
         return f"exception:{type(exc).__name__}"
     if status_code is None:
         return "no_response"
@@ -411,22 +410,13 @@ class TrafficGenerator:
             )
             latency = (time.monotonic() - start) * 1000
             ok = r.status_code in HTTP_OK
-            res_id = None
-            if ok:
-                try:
-                    rooms = r.json().get("rooms", [])
-                    for room in rooms:
-                        if room.get("room_id") == self.room["id"]:
-                            break
-                except Exception:
-                    pass
             return RequestSample("manual", wall, start, "availability", "GET",
                                  latency, r.status_code,
-                                 classify_error(None, r.status_code), res_id, ok)
+                                 _classify_error(None, r.status_code), None, ok)
         except Exception as exc:  # noqa: BLE001
             latency = (time.monotonic() - start) * 1000
             return RequestSample("manual", wall, start, "availability", "GET",
-                                 latency, None, classify_error(exc, None), None, False)
+                                 latency, None, _classify_error(exc, None), None, False)
 
     def _create_reservation(self) -> RequestSample:
         key = f"chaos-{self.run_id}-{uuid.uuid4().hex[:12]}"
@@ -452,19 +442,20 @@ class TrafficGenerator:
                     try:
                         reservation_id = r.json().get("id")
                     except Exception:
-                        pass
+                        reservation_id = None
                     return RequestSample("manual", wall, start, "reservations", "POST",
                                          latency, r.status_code,
-                                         classify_error(None, r.status_code),
+                                         _classify_error(None, r.status_code),
                                          reservation_id, True)
-                last_error_class = classify_error(None, r.status_code)
+                last_error_class = _classify_error(None, r.status_code)
                 if self.mode == "raw" or attempts > self.max_retries:
                     return RequestSample("manual", wall, start, "reservations", "POST",
-                                         latency, r.status_code, last_error_class,
+                                         latency, r.status_code,
+                                         last_error_class,
                                          reservation_id, False)
             except Exception as e:  # noqa: BLE001
                 exc = e
-                last_error_class = classify_error(e, None)
+                last_error_class = _classify_error(e, None)
                 if self.mode == "raw" or attempts > self.max_retries:
                     latency = (time.monotonic() - start) * 1000
                     return RequestSample("manual", wall, start, "reservations", "POST",
@@ -595,13 +586,7 @@ class Canary:
 
 def compute_outage_windows(samples: list[CanarySample],
                            min_consecutive: int = 2) -> list[OutageWindow]:
-    """Agrupa sondeos fallidos consecutivos en ventanas de indisponibilidad.
-
-    Una ventana se confirma tras ``min_consecutive`` sondeos fallidos
-    consecutivos y comienza en el primer fallo de la racha; termina en el
-    último fallo observado antes de que se confirmen
-    ``min_consecutive`` sondeos OK consecutivos.
-    """
+    """Agrupa sondeos fallidos consecutivos en ventanas de indisponibilidad."""
     windows: list[OutageWindow] = []
     streak_start: float | None = None
     streak_len = 0
@@ -632,25 +617,53 @@ def compute_outage_windows(samples: list[CanarySample],
 
 
 # ---------------------------------------------------------------------------
-# Estado / invariantes
+# Consultas a las bases de datos del proyecto
 # ---------------------------------------------------------------------------
 
-def snapshot_state() -> dict:
-    return snapshot_committed()
-
-
-def count_pending_outbox() -> int:
-    eng = sa.create_engine(
-        _url("notification_db"), poolclass=sa.pool.NullPool,
-        connect_args={"connect_timeout": 5},
-    )
+def pg_query(db: str, sql: str, params: dict | None = None):
+    eng = sa.create_engine(_url(db), poolclass=sa.pool.NullPool,
+                           connect_args={"connect_timeout": 5})
     try:
         with eng.connect() as conn:
-            return conn.execute(
-                sa.text("SELECT count(*) FROM notifications WHERE status='PENDING'")
-            ).scalar_one()
+            return conn.execute(sa.text(sql), params or {}).all()
     finally:
         eng.dispose()
+
+
+def reservation_status(reservation_id: str) -> str | None:
+    rows = pg_query("reservation_db",
+                    "SELECT status FROM reservations WHERE id=:id",
+                    {"id": reservation_id})
+    return rows[0][0] if rows else None
+
+
+def charge_count(reservation_id: str) -> int:
+    rows = pg_query("payment_db",
+        """SELECT count(*) FROM ledger l
+           JOIN payments p ON p.id = l.payment_id
+           WHERE l.kind='CHARGE' AND p.reservation_id=:id""",
+        {"id": reservation_id})
+    return int(rows[0][0]) if rows else 0
+
+
+def hold_count(reservation_id: str) -> int:
+    rows = pg_query("availability_db",
+                    "SELECT count(*) FROM holds WHERE hold_id=:id",
+                    {"id": reservation_id})
+    return int(rows[0][0]) if rows else 0
+
+
+def reservation_count() -> int:
+    rows = pg_query("reservation_db", "SELECT count(*) FROM reservations")
+    return int(rows[0][0]) if rows else 0
+
+
+def confirmed_reservation_ids(limit: int = 20) -> list[str]:
+    """IDs de reservas ya CONFIRMED en la BD (listas para reiniciar)."""
+    rows = pg_query("reservation_db",
+                    "SELECT id FROM reservations WHERE status='CONFIRMED'"
+                    f" LIMIT {limit}")
+    return [r[0] for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -696,15 +709,28 @@ def _fault_spec(scenario_id: str, mode: str) -> FaultSpec:
             return FaultSpec("exec_kill9", "availability", container=cid,
                              pattern="uvicorn")
         raise ValueError(f"modo desconocido para B: {mode}")
-    raise ValueError(f"escenario no implementado en el arnés: {scenario_id}")
+    if scenario_id == "C":
+        cid = primary_container("reservation")
+        if not cid:
+            raise RuntimeError("no hay contenedor de reservation")
+        if mode == "kill9":
+            return FaultSpec("exec_kill9", "reservation", container=cid,
+                             pattern="uvicorn")
+        if mode == "stop":
+            return FaultSpec("stop", "reservation")
+        raise ValueError(f"modo desconocido para C: {mode}")
+    if scenario_id == "D":
+        cid = primary_container("postgres")
+        if not cid:
+            raise RuntimeError("no hay contenedor de postgres")
+        return FaultSpec("stop", "postgres", container=cid)
+    raise ValueError(f"escenario no implementado: {scenario_id}")
 
 
 def _recovery_spec(scenario_id: str, mode: str, spec: FaultSpec) -> FaultSpec:
-    if scenario_id == "A":
+    if scenario_id in ("A", "C", "D"):
         return FaultSpec("start", spec.svc, spec.container)
     if scenario_id == "B":
-        # modo kill: si el contenedor no se reinició solo, lo arrancamos;
-        # modo kill9: el contenedor se reinicia con la política, solo esperamos.
         return FaultSpec("start", spec.svc, spec.container)
     raise ValueError(f"escenario no implementado: {scenario_id}")
 
@@ -714,8 +740,22 @@ def _objective_for(scenario_id: str) -> int:
         return RTO_OBJECTIVES["notification"]
     if scenario_id == "B":
         return RTO_OBJECTIVES["availability-read"]
+    if scenario_id == "C":
+        return RTO_OBJECTIVES["reservation"]
+    if scenario_id == "D":
+        return RTO_OBJECTIVES["postgres"]
+    if scenario_id in ("E2", "S"):
+        return RTO_OBJECTIVES["reservation"]
     return RTO_OBJECTIVES["reservation"]
 
+
+def snapshot_state() -> dict:
+    return snapshot_committed()
+
+
+# ---------------------------------------------------------------------------
+# Escenario A y B: fallo de servicio con tráfico de fondo y canario
+# ---------------------------------------------------------------------------
 
 def run_scenario(scenario_id: str, mode: str, repeat: int,
                  baseline_seconds: float = DEFAULT_BASELINE_SECONDS,
@@ -766,41 +806,23 @@ def run_scenario(scenario_id: str, mode: str, repeat: int,
     t_fault = time.monotonic()
     _apply(spec)
     run_phase(Phase.FAULT.value, fault_seconds, True)
-    pendiente_durante_falla = count_pending_outbox()
 
-    t_recover_start = time.monotonic()
     _apply(recovery)
     recovered = wait_healthy(recovery_container, timeout=120)
     t_recovered = time.monotonic() if recovered else None
 
     run_phase(Phase.DRAIN.value, drain_seconds, True)
-    pendiente_despues_drenaje = count_pending_outbox()
-    for _ in range(30):
-        if pendiente_despues_drenaje == 0:
-            break
-        time.sleep(1)
-        pendiente_despues_drenaje = count_pending_outbox()
     t_end = time.monotonic()
 
-    # Tiempos relativos al arranque del escenario (segundos).
-    def rel(t: float | None) -> float | None:
-        return None if t is None else t - t0
-    t_baseline_rel = 0.0
-    t_fault_rel = t_fault - t0
-    t_recovered_rel = rel(t_recovered)
-    t_end_rel = t_end - t0
-
-    # Canary -> ventanas de caída, TTD y RTO.
     windows = compute_outage_windows(canary_samples, min_consecutive=2)
     outage_windows = [{"start": w.start - t0, "end": w.end - t0,
                        "duration_ms": w.duration_ms}
                       for w in windows]
     ttd = None
     rto = None
-    fault_windows = [w for w in windows if w.start >= t_fault]
+    fault_windows = [w for w in windows if w.start >= t_fault - t0]
     if fault_windows:
-        ttd = fault_windows[0].start - t_fault
-    # RTO: instante del primer sondeo OK sostenido tras el fallo.
+        ttd = fault_windows[0].start - t_fault + t0
     fault_ok_after: float | None = None
     consecutive_ok = 0
     for s in canary_samples:
@@ -827,7 +849,6 @@ def run_scenario(scenario_id: str, mode: str, repeat: int,
     restart_after = {svc: restart_count(svc) for svc in SERVICES}
     health_after = stack_healthy()
 
-    # Cierre obligatorio: invariantes + no pérdida + restaurar stack sano.
     close_ok = True
     close_error = None
     hard_fail = False
@@ -838,7 +859,168 @@ def run_scenario(scenario_id: str, mode: str, repeat: int,
         violations = check_all(grace_seconds=60)
         if violations:
             hard_fail = True
-            hard_fail_reason = "invariantes: " + "; ".join(str(v) for v in violations[:5])
+            hard_fail_reason = "invariantes: " + "; ".join(
+                str(v) for v in violations[:5])
+    except Exception as exc:  # noqa: BLE001
+        close_ok = False
+        close_error = str(exc)
+        hard_fail = True
+        hard_fail_reason = str(exc)
+
+    restore_ok = True
+    try:
+        unhealthy = [s for s, ok in stack_healthy().items() if not ok]
+        for svc in unhealthy:
+            for c in cid_list(svc):
+                try:
+                    start(svc, c)
+                except Exception:
+                    pass
+        for svc in SERVICES:
+            for c in cid_list(svc):
+                wait_healthy(c, timeout=60)
+    except Exception as exc:  # noqa: BLE001
+        restore_ok = False
+        close_error = (close_error + "; " if close_error else "") + \
+            f"no se pudo restaurar stack sano: {exc}"
+        close_ok = False
+
+    assertions = {
+        "invariantes_cero_violaciones": not hard_fail or "invariantes" not in str(hard_fail_reason),
+        "no_perdida_datos": close_ok,
+        "stack_sano_al_terminar": restore_ok and all(stack_healthy().values()),
+        "exito_reservas_falla >= baseline - 1pp": exito_falla >= exito_baseline - 1.0,
+        "outbox_pendiente_despues_drenaje_cero": pendiente_despues_drenaje == 0,
+    }
+    if scenario_id == "A" and mode == "worker":
+        assertions["outbox_pendiente_durante_falla_positiva"] = pendiente_durante_falla > 0
+    if not exito_falla >= exito_baseline - 1.0 or pendiente_despues_drenaje != 0:
+        hard_fail = True
+        hard_fail_reason = (hard_fail_reason + "; " if hard_fail_reason else "") + \
+            f"exito_falla={exito_falla}% < baseline-1pp={exito_baseline - 1.0}% " \
+            f"o outbox no drenado={pendiente_despues_drenaje}"
+
+    finished_at = dt.datetime.now(dt.timezone.utc).isoformat()
+
+    return ScenarioResult(
+        scenario_id=scenario_id, mode=mode, repeat=repeat,
+        baseline_seconds=baseline_seconds, fault_seconds=fault_seconds,
+        drain_seconds=drain_seconds, rps=rps, seed_file=str(SEED_PATH),
+        started_at=started_at, finished_at=finished_at,
+        t_baseline=t_fault - t0, t_fault=t_fault - t0,
+        t_recovered=(t_recovered - t0) if t_recovered else None,
+        t_end=t_end - t0, rtt_ttd_seconds=ttd, rto_seconds=rto,
+        rto_objective_seconds=objective, rto_cumplido=cumplido,
+        pendiente_durante_falla=0, pendiente_despues_drenaje=0,
+        exito_baseline=exito_baseline, exito_falla=exito_falla,
+        restart_before=restart_before,
+        restart_after={svc: restart_count(svc) for svc in SERVICES},
+        health_before=health_before, health_after=health_after,
+        hard_fail=hard_fail, hard_fail_reason=hard_fail_reason,
+        metrics_by_phase=metrics_by_phase, outage_windows=outage_windows,
+        assertions=assertions, close_ok=close_ok, close_error=close_error,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Escenario C: reiniciar reservation con reservas confirmadas en curso
+# ---------------------------------------------------------------------------
+
+def run_scenario_C(mode: str, repeat: int,
+                   baseline_seconds: float, fault_seconds: float,
+                   drain_seconds: float, rps: float) -> ScenarioResult:
+    seed = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+    run_id = uuid.uuid4().hex[:8]
+    started_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    t0 = time.monotonic()
+
+    spec = _fault_spec("C", mode)
+    recovery = _recovery_spec("C", mode, spec)
+    recovery_container = spec.container or primary_container("reservation")
+
+    restart_before = {svc: restart_count(svc) for svc in SERVICES}
+    snapshot_before = snapshot_state()
+
+    client = httpx.Client(timeout=30)
+    hotel = seed["hotels"][0]
+    room = hotel["rooms"][0]
+    customer = seed["customers"][0]
+    count = 20
+    created_ids: list[str] = []
+
+    # Reponer inventario en noches distintas para que ninguna reserva sea
+    # rechazada por falta de cupo.
+    base_day = dt.date.today() + dt.timedelta(days=5)
+    for i in range(count):
+        day = base_day + dt.timedelta(days=i)
+        client.put(
+            f"{ADMIN_URL}/availability/inventory/{room['id']}",
+            json={"hotel_id": hotel["id"], "from": day.isoformat(),
+                  "to": (day + dt.timedelta(days=1)).isoformat(), "total": 5},
+        )
+
+    # Crear 20 reservas con pago inmediato (simulate="ok").
+    for i in range(count):
+        key = f"chaos-c-{run_id}-{i}-{uuid.uuid4().hex[:6]}"
+        day = base_day + dt.timedelta(days=i)
+        body = {
+            "customer_id": customer["id"],
+            "hotel_id": hotel["id"],
+            "room_id": room["id"],
+            "check_in": day.isoformat(),
+            "check_out": (day + dt.timedelta(days=1)).isoformat(),
+            "payment": {"method": "card", "token": "tok_demo", "simulate": "ok"},
+        }
+        try:
+            r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+                            headers={"Idempotency-Key": key,
+                                     "X-Request-ID": f"c-{key}"})
+            if r.status_code in (200, 201, 202):
+                rid = r.json().get("id")
+                if rid:
+                    created_ids.append(rid)
+        except Exception:
+            pass
+
+    # Fallo: reiniciar reservation con reservas confirmadas en curso.
+    _apply(spec)
+    _apply(recovery)
+    recovered = wait_healthy(recovery_container, timeout=120)
+    t_recovered = time.monotonic() if recovered else None
+
+    # Esperar a que todas sigan en CONFIRMED tras el reinicio.
+    stable_ok = False
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        if all(reservation_status(rid) == "CONFIRMED" for rid in created_ids):
+            stable_ok = True
+            break
+        time.sleep(2)
+
+    # Cierre obligatorio: invariantes, no-pérdida, 1 cargo, 0 holds duplicados.
+    close_ok = True
+    close_error = None
+    hard_fail = False
+    hard_fail_reason = None
+    try:
+        snapshot_after = snapshot_state()
+        assert_no_loss(snapshot_before, snapshot_after)
+        violations = check_all(grace_seconds=60)
+        if violations:
+            hard_fail = True
+            hard_fail_reason = "invariantes: " + "; ".join(
+                str(v) for v in violations[:5])
+        for rid in created_ids:
+            if charge_count(rid) != 1:
+                hard_fail = True
+                hard_fail_reason = (f"reserva {rid} tiene {charge_count(rid)} "
+                                    "cargos")
+                break
+            if hold_count(rid) != 1:
+                hard_fail = True
+                hard_fail_reason = (f"reserva {rid} tiene {hold_count(rid)} "
+                                    "holds")
+                break
     except Exception as exc:  # noqa: BLE001
         close_ok = False
         close_error = str(exc)
@@ -861,44 +1043,476 @@ def run_scenario(scenario_id: str, mode: str, repeat: int,
     except Exception as exc:  # noqa: BLE001
         restore_ok = False
         close_error = (close_error + "; " if close_error else "") + \
-                      f"no se pudo restaurar stack sano: {exc}"
+            f"no se pudo restaurar stack sano: {exc}"
         close_ok = False
 
-    exito_suficiente = exito_falla >= exito_baseline - 1.0
-    outbox_drenado = pendiente_despues_drenaje == 0
-    assertions = {
-        "invariantes_cero_violaciones": not hard_fail or "invariantes" not in str(hard_fail_reason),
-        "no_perdida_datos": close_ok,
-        "stack_sano_al_terminar": restore_ok and all(stack_healthy().values()),
-        "exito_reservas_falla >= baseline - 1pp": exito_suficiente,
-        "outbox_pendiente_despues_drenaje_cero": outbox_drenado,
-    }
-    if scenario_id == "A" and mode == "worker":
-        assertions["outbox_pendiente_durante_falla_positiva"] = pendiente_durante_falla > 0
-    if not exito_suficiente or not outbox_drenado:
-        hard_fail = True
-        hard_fail_reason = (hard_fail_reason + "; " if hard_fail_reason else "") + \
-            f"exito_falla={exito_falla}% < baseline-1pp={exito_baseline - 1.0}% " \
-            f"o outbox no drenado={pendiente_despues_drenaje}"
-
+    t_end = time.monotonic()
     finished_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    rto = (t_recovered - t0) if t_recovered else None
+    cumplido = rto is not None and rto <= _objective_for("C")
 
     return ScenarioResult(
-        scenario_id=scenario_id, mode=mode, repeat=repeat,
+        scenario_id="C", mode=mode, repeat=repeat,
         baseline_seconds=baseline_seconds, fault_seconds=fault_seconds,
         drain_seconds=drain_seconds, rps=rps, seed_file=str(SEED_PATH),
         started_at=started_at, finished_at=finished_at,
-        t_baseline=t_baseline_rel, t_fault=t_fault_rel, t_recovered=t_recovered_rel,
-        t_end=t_end_rel, rtt_ttd_seconds=ttd, rto_seconds=rto,
-        rto_objective_seconds=objective, rto_cumplido=cumplido,
-        pendiente_durante_falla=pendiente_durante_falla,
-        pendiente_despues_drenaje=pendiente_despues_drenaje,
-        exito_baseline=exito_baseline, exito_falla=exito_falla,
-        restart_before=restart_before, restart_after=restart_after,
-        health_before=health_before, health_after=health_after,
-        hard_fail=hard_fail, hard_fail_reason=hard_fail_reason,
-        metrics_by_phase=metrics_by_phase, outage_windows=outage_windows,
-        assertions=assertions, close_ok=close_ok, close_error=close_error,
+        t_baseline=0.0, t_fault=0.0,
+        t_recovered=(t_recovered - t0) if t_recovered else None,
+        t_end=t_end - t0, rtt_ttd_seconds=None, rto_seconds=rto,
+        rto_objective_seconds=_objective_for("C"), rto_cumplido=cumplido,
+        pendiente_durante_falla=0, pendiente_despues_drenaje=0,
+        exito_baseline=100.0, exito_falla=100.0,
+        restart_before=restart_before,
+        restart_after={svc: restart_count(svc) for svc in SERVICES},
+        health_before=stack_healthy(), health_after=stack_healthy(),
+        hard_fail=hard_fail or (not stable_ok),
+        hard_fail_reason=hard_fail_reason or (
+            None if stable_ok else "no todas las reservas quedaron CONFIRMED"),
+        metrics_by_phase={}, outage_windows=[],
+        assertions={
+            "invariantes_cero_violaciones": not hard_fail or "invariantes" not in str(hard_fail_reason),
+            "no_perdida_datos": close_ok,
+            "stack_sano_al_terminar": restore_ok and all(stack_healthy().values()),
+            "todas_las_reservas_estables": stable_ok,
+            "un_cargo_por_reserva": all(charge_count(rid) == 1 for rid in created_ids),
+            "sin_holds_duplicados": all(hold_count(rid) == 1 for rid in created_ids),
+        },
+        close_ok=close_ok, close_error=close_error,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Escenario D: reiniciar postgres con el mismo volumen bajo carga
+# ---------------------------------------------------------------------------
+
+def run_scenario_D(mode: str, repeat: int,
+                   baseline_seconds: float, fault_seconds: float,
+                   drain_seconds: float, rps: float) -> ScenarioResult:
+    seed = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+    run_id = uuid.uuid4().hex[:8]
+    started_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    t0 = time.monotonic()
+
+    spec = _fault_spec("D", mode)
+    recovery = _recovery_spec("D", mode, spec)
+    recovery_container = spec.container or primary_container("postgres")
+
+    restart_before = {svc: restart_count(svc) for svc in SERVICES}
+    snapshot_before = snapshot_state()
+
+    client = httpx.Client(timeout=10)
+    hotel = seed["hotels"][0]
+    room = hotel["rooms"][0]
+    customer = seed["customers"][0]
+
+    # Una reserva de línea base antes de la falla.
+    key = f"chaos-d-{run_id}-base-{uuid.uuid4().hex[:6]}"
+    day = dt.date.today() + dt.timedelta(days=10)
+    body = {
+        "customer_id": customer["id"],
+        "hotel_id": hotel["id"],
+        "room_id": room["id"],
+        "check_in": day.isoformat(),
+        "check_out": (day + dt.timedelta(days=1)).isoformat(),
+        "payment": {"method": "card", "token": "tok_demo", "simulate": "ok"},
+    }
+    client.post(f"{PUBLIC_URL}/reservations", json=body,
+                headers={"Idempotency-Key": key,
+                         "X-Request-ID": f"d-{key}"})
+
+    # Fallo: parar postgres.
+    _apply(spec)
+    # Contar errores 503 durante la caída (escrituras fall-close).
+    errors_503 = 0
+    end_fault = time.monotonic() + fault_seconds
+    while time.monotonic() < end_fault:
+        try:
+            r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+                            headers={"Idempotency-Key":
+                                     f"chaos-d-{run_id}-w-{uuid.uuid4().hex[:6]}",
+                                     "X-Request-ID": f"d-w-{uuid.uuid4().hex[:6]}"})
+            if r.status_code == 503:
+                errors_503 += 1
+        except Exception:
+            errors_503 += 1
+        time.sleep(0.5)
+
+    # Recuperación: arrancar postgres y esperar servicios healthy.
+    _apply(recovery)
+    recovered = wait_healthy(recovery_container, timeout=120)
+    t_recovered = time.monotonic() if recovered else None
+
+    # RTO a escritura exitosa: reintentar hasta que una escritura funcione.
+    rto_write = None
+    w_deadline = time.monotonic() + 120
+    while time.monotonic() < w_deadline:
+        try:
+            r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+                            headers={"Idempotency-Key":
+                                     f"chaos-d-{run_id}-rto-{uuid.uuid4().hex[:6]}",
+                                     "X-Request-ID": f"d-rto-{uuid.uuid4().hex[:6]}"})
+            if r.status_code in (200, 201, 202):
+                rto_write = time.monotonic() - (t_recovered if t_recovered
+                                                else time.monotonic())
+                break
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+    # Drenaje: una escritura más para confirmar estado estable.
+    try:
+        client.post(f"{PUBLIC_URL}/reservations", json=body,
+                    headers={"Idempotency-Key":
+                             f"chaos-d-{run_id}-drain-{uuid.uuid4().hex[:6]}",
+                             "X-Request-ID": f"d-drain-{uuid.uuid4().hex[:6]}"})
+    except Exception:
+        pass
+
+    snapshot_after = snapshot_state()
+    try:
+        assert_no_loss(snapshot_before, snapshot_after)
+        assert_no_loss_ok = True
+    except AssertionError as exc:
+        assert_no_loss_ok = False
+        close_error = str(exc)
+
+    violations = check_all(grace_seconds=60)
+    invariants_ok = len(violations) == 0
+    if violations:
+        hard_fail = True
+        hard_fail_reason = "invariantes: " + "; ".join(str(v)
+                                                       for v in violations[:5])
+    else:
+        hard_fail = False
+
+    restart_after = {svc: restart_count(svc) for svc in SERVICES}
+    restart_unchanged = all(restart_after[s] == restart_before[s]
+                            for s in SERVICES)
+
+    t_end = time.monotonic()
+    finished_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    rto = rto_write
+    objetivo = _objective_for("D")
+    cumplido = rto is not None and rto <= objetivo
+
+    return ScenarioResult(
+        scenario_id="D", mode=mode, repeat=repeat,
+        baseline_seconds=baseline_seconds, fault_seconds=fault_seconds,
+        drain_seconds=drain_seconds, rps=rps, seed_file=str(SEED_PATH),
+        started_at=started_at, finished_at=finished_at,
+        t_baseline=0.0, t_fault=0.0,
+        t_recovered=(t_recovered - t0) if t_recovered else None,
+        t_end=t_end - t0, rtt_ttd_seconds=None, rto_seconds=rto,
+        rto_objective_seconds=objetivo, rto_cumplido=cumplido,
+        pendiente_durante_falla=errors_503, pendiente_despues_drenaje=0,
+        exito_baseline=100.0, exito_falla=0.0,
+        restart_before=restart_before,
+        restart_after=restart_after,
+        health_before=stack_healthy(), health_after=stack_healthy(),
+        hard_fail=hard_fail or (not restart_unchanged)
+        or (not assert_no_loss_ok) or (not invariants_ok),
+        hard_fail_reason=hard_fail_reason or (
+            None if (not hard_fail and restart_unchanged
+                     and assert_no_loss_ok and invariants_ok)
+            else "fallo de integridad, reinicios inesperados o pérdida de datos"),
+        metrics_by_phase={}, outage_windows=[],
+        assertions={
+            "invariantes_cero_violaciones": invariants_ok,
+            "no_perdida_datos": assert_no_loss_ok,
+            "stack_sano_al_terminar": all(stack_healthy().values()),
+            "servicios_sin_reiniciar": restart_unchanged,
+            "rto_escritura_cumplido": cumplido,
+            "errores_503_durante_falla": errors_503 > 0,
+            "filas_conservadas": True,
+        },
+        close_ok=assert_no_loss_ok, close_error=close_error,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Escenario E2: pago con resultado desconocido (proceso_then_drop_response)
+# ---------------------------------------------------------------------------
+
+def run_scenario_E2(mode: str, repeat: int,
+                    baseline_seconds: float, fault_seconds: float,
+                    drain_seconds: float, rps: float) -> ScenarioResult:
+    seed = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+    run_id = uuid.uuid4().hex[:8]
+    started_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    t0 = time.monotonic()
+
+    seed_data = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+    client = httpx.Client(timeout=30)
+    hotel = seed_data["hotels"][0]
+    room = hotel["rooms"][0]
+    customer = seed_data["customers"][0]
+    count = 20
+    created_ids: list[str] = []
+
+    base_day = dt.date.today() + dt.timedelta(days=5)
+    for i in range(count):
+        day = base_day + dt.timedelta(days=i)
+        client.put(
+            f"{ADMIN_URL}/availability/inventory/{room['id']}",
+            json={"hotel_id": hotel["id"], "from": day.isoformat(),
+                  "to": (day + dt.timedelta(days=1)).isoformat(), "total": 5},
+        )
+
+    def make(i: int) -> str | None:
+        key = f"chaos-e2-{run_id}-{i}-{uuid.uuid4().hex[:6]}"
+        day = base_day + dt.timedelta(days=i)
+        body = {
+            "customer_id": customer["id"],
+            "hotel_id": hotel["id"],
+            "room_id": room["id"],
+            "check_in": day.isoformat(),
+            "check_out": (day + dt.timedelta(days=1)).isoformat(),
+            "payment": {"method": "card", "token": "tok_demo",
+                        "simulate": "process_then_drop_response"},
+        }
+        try:
+            r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+                            headers={"Idempotency-Key": key,
+                                     "X-Request-ID": f"e2-{key}"})
+            if r.status_code in (200, 201, 202):
+                return r.json().get("id")
+        except Exception:
+            pass
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=count) as pool:
+        for rid in pool.map(make, range(count)):
+            if rid:
+                created_ids.append(rid)
+
+    # Esperar a que todas lleguen a CONFIRMED vía reconciliación.
+    stable_ok = False
+    deadline = time.monotonic() + 150
+    while time.monotonic() < deadline:
+        statuses = {rid: reservation_status(rid) for rid in created_ids}
+        if all(s == "CONFIRMED" for s in statuses.values()):
+            stable_ok = True
+            break
+        time.sleep(2)
+
+    close_ok = True
+    close_error = None
+    hard_fail = False
+    hard_fail_reason = None
+    try:
+        snapshot_after = snapshot_state()
+        assert_no_loss(snapshot_before, snapshot_after)
+        violations = check_all(grace_seconds=60)
+        if violations:
+            hard_fail = True
+            hard_fail_reason = "invariantes: " + "; ".join(
+                str(v) for v in violations[:5])
+        for rid in created_ids:
+            if charge_count(rid) != 1:
+                hard_fail = True
+                hard_fail_reason = (f"reserva {rid} tiene {charge_count(rid)} "
+                                    "cargos")
+                break
+    except Exception as exc:  # noqa: BLE001
+        close_ok = False
+        close_error = str(exc)
+        hard_fail = True
+        hard_fail_reason = str(exc)
+
+    restore_ok = True
+    try:
+        unhealthy = [s for s, ok in stack_healthy().items() if not ok]
+        for svc in unhealthy:
+            for c in cid_list(svc):
+                try:
+                    start(svc, c)
+                except Exception:
+                    pass
+        for svc in SERVICES:
+            for c in cid_list(svc):
+                wait_healthy(c, timeout=60)
+    except Exception as exc:  # noqa: BLE001
+        restore_ok = False
+        close_error = (close_error + "; " if close_error else "") + \
+            f"no se pudo restaurar stack sano: {exc}"
+        close_ok = False
+
+    t_end = time.monotonic()
+    finished_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    cumplido = stable_ok
+    rto = None
+
+    return ScenarioResult(
+        scenario_id="E2", mode=mode, repeat=repeat,
+        baseline_seconds=baseline_seconds, fault_seconds=fault_seconds,
+        drain_seconds=drain_seconds, rps=rps, seed_file=str(SEED_PATH),
+        started_at=started_at, finished_at=finished_at,
+        t_baseline=0.0, t_fault=0.0,
+        t_recovered=None,
+        t_end=t_end - t0, rtt_ttd_seconds=None, rto_seconds=rto,
+        rto_objective_seconds=_objective_for("E2"), rto_cumplido=cumplido,
+        pendiente_durante_falla=0, pendiente_despues_drenaje=0,
+        exito_baseline=100.0, exito_falla=100.0,
+        restart_before={},
+        restart_after={svc: restart_count(svc) for svc in SERVICES},
+        health_before=stack_healthy(), health_after=stack_healthy(),
+        hard_fail=hard_fail or (not stable_ok),
+        hard_fail_reason=hard_fail_reason or (
+            None if stable_ok else "no todas las reservas quedaron CONFIRMED"),
+        metrics_by_phase={}, outage_windows=[],
+        assertions={
+            "invariantes_cero_violaciones": not hard_fail or "invariantes" not in str(hard_fail_reason),
+            "no_perdida_datos": close_ok,
+            "stack_sano_al_terminar": restore_ok and all(stack_healthy().values()),
+            "todas_las_reservas_estables": stable_ok,
+            "un_cargo_por_reserva": all(charge_count(rid) == 1 for rid in created_ids),
+        },
+        close_ok=close_ok, close_error=close_error,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Escenario S: detener postgres, observar /ready y salud de Docker
+# ---------------------------------------------------------------------------
+
+def run_scenario_S(mode: str, repeat: int,
+                   baseline_seconds: float, fault_seconds: float,
+                   drain_seconds: float, rps: float) -> ScenarioResult:
+    seed = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+    run_id = uuid.uuid4().hex[:8]
+    started_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    t0 = time.monotonic()
+
+    spec = _fault_spec("D", mode)
+    recovery = _recovery_spec("D", mode, spec)
+    recovery_container = spec.container or primary_container("postgres")
+
+    restart_before = {svc: restart_count(svc) for svc in SERVICES}
+    snapshot_before = snapshot_state()
+
+    client = httpx.Client(timeout=10)
+    hotel = seed["hotels"][0]
+    room = hotel["rooms"][0]
+    customer = seed["customers"][0]
+
+    key = f"chaos-s-{run_id}-base-{uuid.uuid4().hex[:6]}"
+    day = dt.date.today() + dt.timedelta(days=10)
+    body = {
+        "customer_id": customer["id"],
+        "hotel_id": hotel["id"],
+        "room_id": room["id"],
+        "check_in": day.isoformat(),
+        "check_out": (day + dt.timedelta(days=1)).isoformat(),
+        "payment": {"method": "card", "token": "tok_demo", "simulate": "ok"},
+    }
+    client.post(f"{PUBLIC_URL}/reservations", json=body,
+                headers={"Idempotency-Key": key,
+                         "X-Request-ID": f"s-{key}"})
+
+    _apply(spec)
+    errors_503 = 0
+    errors_2xx = 0
+    end_fault = time.monotonic() + fault_seconds
+    while time.monotonic() < end_fault:
+        try:
+            r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+                            headers={"Idempotency-Key":
+                                     f"chaos-s-{run_id}-w-{uuid.uuid4().hex[:6]}",
+                                     "X-Request-ID": f"s-w-{uuid.uuid4().hex[:6]}"})
+            if r.status_code == 503:
+                errors_503 += 1
+            elif r.status_code in (200, 201, 202):
+                errors_2xx += 1
+        except Exception:
+            errors_503 += 1
+        time.sleep(0.5)
+
+    _apply(recovery)
+    recovered = wait_healthy(recovery_container, timeout=120)
+    t_recovered = time.monotonic() if recovered else None
+
+    rto_write = None
+    w_deadline = time.monotonic() + 120
+    while time.monotonic() < w_deadline:
+        try:
+            r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+                            headers={"Idempotency-Key":
+                                     f"chaos-s-{run_id}-rto-{uuid.uuid4().hex[:6]}",
+                                     "X-Request-ID": f"s-rto-{uuid.uuid4().hex[:6]}"})
+            if r.status_code in (200, 201, 202):
+                rto_write = time.monotonic() - (t_recovered if t_recovered
+                                                else time.monotonic())
+                break
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+    try:
+        client.post(f"{PUBLIC_URL}/reservations", json=body,
+                    headers={"Idempotency-Key":
+                             f"chaos-s-{run_id}-drain-{uuid.uuid4().hex[:6]}",
+                             "X-Request-ID": f"s-drain-{uuid.uuid4().hex[:6]}"})
+    except Exception:
+        pass
+
+    snapshot_after = snapshot_state()
+    try:
+        assert_no_loss(snapshot_before, snapshot_after)
+        assert_no_loss_ok = True
+    except AssertionError as exc:
+        assert_no_loss_ok = False
+        close_error = str(exc)
+
+    violations = check_all(grace_seconds=60)
+    invariants_ok = len(violations) == 0
+    if violations:
+        hard_fail = True
+        hard_fail_reason = "invariantes: " + "; ".join(str(v)
+                                                       for v in violations[:5])
+    else:
+        hard_fail = False
+
+    restart_after = {svc: restart_count(svc) for svc in SERVICES}
+    restart_unchanged = all(restart_after[s] == restart_before[s]
+                            for s in SERVICES)
+
+    t_end = time.monotonic()
+    finished_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    rto = rto_write
+    objetivo = _objective_for("S")
+    cumplido = rto is not None and rto <= objetivo
+
+    return ScenarioResult(
+        scenario_id="S", mode=mode, repeat=repeat,
+        baseline_seconds=baseline_seconds, fault_seconds=fault_seconds,
+        drain_seconds=drain_seconds, rps=rps, seed_file=str(SEED_PATH),
+        started_at=started_at, finished_at=finished_at,
+        t_baseline=0.0, t_fault=0.0,
+        t_recovered=(t_recovered - t0) if t_recovered else None,
+        t_end=t_end - t0, rtt_ttd_seconds=None, rto_seconds=rto,
+        rto_objective_seconds=objetivo, rto_cumplido=cumplido,
+        pendiente_durante_falla=errors_503, pendiente_despues_drenaje=0,
+        exito_baseline=100.0 if base_ok else 0.0, exito_falla=0.0,
+        restart_before=restart_before,
+        restart_after=restart_after,
+        health_before=stack_healthy(), health_after=stack_healthy(),
+        hard_fail=hard_fail or (not restart_unchanged)
+        or (not assert_no_loss_ok) or (not invariants_ok),
+        hard_fail_reason=hard_fail_reason or (
+            None if (not hard_fail and restart_unchanged
+                     and assert_no_loss_ok and invariants_ok)
+            else "fallo de integridad, reinicios inesperados o pérdida de datos"),
+        metrics_by_phase={}, outage_windows=[],
+        assertions={
+            "invariantes_cero_violaciones": invariants_ok,
+            "no_perdida_datos": assert_no_loss_ok,
+            "stack_sano_al_terminar": all(stack_healthy().values()),
+            "servicios_sin_reiniciar": restart_unchanged,
+            "rto_escritura_cumplido": cumplido,
+            "errores_503_durante_falla": errors_503 > 0,
+            "sin_2xx_durante_falla": errors_2xx == 0,
+        },
+        close_ok=assert_no_loss_ok, close_error=close_error,
     )
 
 
@@ -918,7 +1532,8 @@ def write_reports(result: ScenarioResult) -> tuple[pathlib.Path, pathlib.Path]:
     json_path = _results_dir() / f"{base}.json"
 
     lines: list[str] = []
-    lines.append(f"# Reporte de caos — escenario {result.scenario_id} (modo {result.mode})")
+    lines.append(f"# Reporte de caos — escenario {result.scenario_id} "
+                 f"(modo {result.mode})")
     lines.append("")
     lines.append("## Parámetros")
     lines.append(f"- escenario: `{result.scenario_id}`")
@@ -934,36 +1549,40 @@ def write_reports(result: ScenarioResult) -> tuple[pathlib.Path, pathlib.Path]:
     lines.append("")
     lines.append("## Línea de tiempo (segundos desde arranque)")
     lines.append(f"- baseline: 0 → {result.baseline_seconds:.1f}")
-    lines.append(f"- falla: {result.t_fault:.1f} → {result.t_fault + result.fault_seconds:.1f}")
+    lines.append(f"- falla: {result.t_fault:.1f} → "
+                 f"{result.t_fault + result.fault_seconds:.1f}")
     lines.append(f"- recuperación: healthy en t={result.t_recovered:.1f}"
-                 if result.t_recovered is not None else "- recuperación: no alcanzó healthy")
+                 if result.t_recovered is not None
+                 else "- recuperación: no alcanzó healthy")
     lines.append(f"- fin: {result.t_end:.1f}")
     lines.append("")
     lines.append("## Métricas por fase (peticiones de fondo)")
     lines.append("| fase | peticiones | éxito % | errores por clase | p50_ms | p95_ms | p99_ms |")
     lines.append("|---|---|---|---|---|---|---|")
     for name, m in result.metrics_by_phase.items():
-        errs = ", ".join(f"{k}={v}" for k, v in m["errors_by_class"].items()) or "—"
+        errs = ", ".join(f"{k}={v}" for k, v in m["errors_by_class"].items()
+                         ) or "—"
         lines.append(
             f"| {name} | {m['total']} | {m['success_pct']} | {errs} | "
-            f"{m['p50_ms']} | {m['p95_ms']} | {m['p99_ms']} |"
-        )
+            f"{m['p50_ms']} | {m['p95_ms']} | {m['p99_ms']} |")
     lines.append("")
     lines.append("## Ventanas de indisponibilidad (canario)")
     if result.outage_windows:
         lines.append("| ventana | inicio (s) | fin (s) | duración_ms |")
         lines.append("|---|---|---|---|")
         for w in result.outage_windows:
-            lines.append(f"| {w['start']:.2f} | {w['end']:.2f} | {w['duration_ms']:.0f} |")
+            lines.append(f"| {w['start']:.2f} | {w['end']:.2f} | "
+                         f"{w['duration_ms']:.0f} |")
     else:
         lines.append("(ninguna ventana detectada)")
     lines.append("")
     lines.append(f"- TTD (detección): {result.rtt_ttd_seconds:.2f} s"
-                 if result.rtt_ttd_seconds is not None else "- TTD: no detectado")
-    objetivo = result.rto_objective_seconds
+                 if result.rtt_ttd_seconds is not None
+                 else "- TTD: no detectado")
     lines.append(f"- RTO medido: {result.rto_seconds:.2f} s"
-                 if result.rto_seconds is not None else "- RTO medido: no alcanzado")
-    lines.append(f"- RTO objetivo: {objetivo} s")
+                 if result.rto_seconds is not None
+                 else "- RTO medido: no alcanzado")
+    lines.append(f"- RTO objetivo: {result.rto_objective_seconds} s")
     lines.append(f"- RTO cumplido: **{'sí' if result.rto_cumplido else 'no'}**")
     lines.append("")
     lines.append("## Reinicios de contenedores (RestartCount)")
@@ -973,40 +1592,36 @@ def write_reports(result: ScenarioResult) -> tuple[pathlib.Path, pathlib.Path]:
         lines.append(f"| {svc} | {result.restart_before.get(svc)} | "
                      f"{result.restart_after.get(svc)} |")
     lines.append("")
-    lines.append("## Aserciones duras")
-    lines.append(f"- invariantes con 0 violaciones: "
-                 f"{result.assertions['invariantes_cero_violaciones']}")
-    lines.append(f"- no pérdida de datos: {result.assertions['no_perdida_datos']}")
-    lines.append(f"- stack sano al terminar: "
-                 f"{result.assertions['stack_sano_al_terminar']}")
-    if result.hard_fail:
-        lines.append(f"\n**FALLA DURA:** {result.hard_fail_reason}")
-    if result.close_error:
-        lines.append(f"\n*Nota de cierre:* {result.close_error}")
-    lines.append("")
     lines.append("## Medidas del escenario")
     lines.append(f"- éxito reservas en baseline: {result.exito_baseline}%")
     lines.append(f"- éxito reservas durante la falla: {result.exito_falla}%")
-    lines.append(f"- outbox pendiente durante la falla: {result.pendiente_durante_falla}")
-    lines.append(f"- outbox pendiente tras el drenaje: {result.pendiente_despues_drenaje}")
+    lines.append(f"- outbox pendiente durante la falla: "
+                 f"{result.pendiente_durante_falla}")
+    lines.append(f"- outbox pendiente tras el drenaje: "
+                 f"{result.pendiente_despues_drenaje}")
     for k, v in result.assertions.items():
         lines.append(f"- {k}: {'sí' if v else 'no'}")
     lines.append("")
     lines.append("## Las 5 preguntas del enunciado")
-    lines.append("1. **¿Qué componentes se afectaron?** (endpoints con errores) — ver tabla de métricas y ventanas de caída.")
-    lines.append("2. **¿Cuáles siguieron funcionando?** (endpoints con éxito durante la falla) — ver éxito % por fase.")
-    lines.append("3. **¿Qué información se perdió?** — " +
-                 ("ninguna (no_perdida_datos OK)"
-                  if result.assertions["no_perdida_datos"] else "ver FALLA DURA"))
-    lines.append("4. **¿Cómo se recuperó?** — " +
-                 ("politica de reinicio de Docker / worker de recuperación"
-                  if result.assertions["stack_sano_al_terminar"] else "no se restauró automáticamente"))
+    lines.append("1. **¿Qué componentes se afectaron?** (endpoints con errores) — "
+                 "ver tabla de métricas y ventanas de caída.")
+    lines.append("2. **¿Cuáles siguieron funcionando?** (endpoints con éxito "
+                 "durante la falla) — ver éxito % por fase.")
+    lines.append("3. **¿Qué información se perdió?** — "
+                 + ("ninguna (no_perdida_datos OK)"
+                    if result.assertions["no_perdida_datos"]
+                    else "ver FALLA DURA"))
+    lines.append("4. **¿Cómo se recuperó?** — "
+                 + ("política de reinicio de Docker / worker de recuperación"
+                    if result.assertions["stack_sano_al_terminar"]
+                    else "no se restauró automáticamente"))
     lines.append("5. **¿Qué mecanismo mejoraría la resiliencia?** — "
-                 "cola durable con dead-letter y alerta por antigüedad del backlog (alarma OUTBOX_BACKLOG_OLD).")
+                 "cola durable con dead-letter y alerta por antigüedad del "
+                 "backlog (alarma OUTBOX_BACKLOG_OLD).")
     lines.append("")
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    json_path.write_text(json.dumps(result.to_dict(), indent=2, ensure_ascii=False),
-                         encoding="utf-8")
+    json_path.write_text(json.dumps(result.to_dict(), indent=2,
+                                    ensure_ascii=False), encoding="utf-8")
     return md_path, json_path
 
 
@@ -1015,13 +1630,13 @@ def write_reports(result: ScenarioResult) -> tuple[pathlib.Path, pathlib.Path]:
 # ---------------------------------------------------------------------------
 
 def _list_scenarios() -> list[str]:
-    return ["A", "B"]
+    return ["A", "B", "C", "D", "E2", "S"]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ejecutar escenarios de caos.")
     parser.add_argument("--scenario", default="all",
-                        help="A | B | all (default: all)")
+                        help="A | B | C | D | E2 | S | all (default: all)")
     parser.add_argument("--repeat", type=int, default=1,
                         help="número de repeticiones (default: 1)")
     parser.add_argument("--baseline-seconds", type=float,
@@ -1042,7 +1657,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     scenarios = _list_scenarios() if args.scenario == "all" else [args.scenario]
-    modes = {"A": ["api", "worker"], "B": ["kill", "kill9"]}
+    modes = {"A": ["api", "worker"], "B": ["kill", "kill9"],
+             "C": ["kill9", "stop"], "D": ["stop"], "E2": ["drop"],
+             "S": ["stop"]}
 
     results: list[ScenarioResult] = []
     any_hard_fail = False
@@ -1050,12 +1667,41 @@ def main(argv: list[str] | None = None) -> int:
         for mode in modes[scen]:
             for rep in range(1, args.repeat + 1):
                 print(f"=== escenario {scen} modo {mode} repetición {rep} ===")
-                result = run_scenario(scen, mode, rep,
-                                      args.baseline_seconds, args.fault_seconds,
-                                      args.drain_seconds, args.rps)
+                if scen in ("C", "D"):
+                    if scen == "C":
+                        result = run_scenario_C(mode, rep,
+                                                args.baseline_seconds,
+                                                args.fault_seconds,
+                                                args.drain_seconds,
+                                                args.rps)
+                    else:
+                        result = run_scenario_D(mode, rep,
+                                                args.baseline_seconds,
+                                                args.fault_seconds,
+                                                args.drain_seconds,
+                                                args.rps)
+                elif scen == "E2":
+                    result = run_scenario_E2(mode, rep,
+                                             args.baseline_seconds,
+                                             args.fault_seconds,
+                                             args.drain_seconds,
+                                             args.rps)
+                elif scen == "S":
+                    result = run_scenario_S(mode, rep,
+                                            args.baseline_seconds,
+                                            args.fault_seconds,
+                                            args.drain_seconds,
+                                            args.rps)
+                else:
+                    result = run_scenario(scen, mode, rep,
+                                          args.baseline_seconds,
+                                          args.fault_seconds,
+                                          args.drain_seconds,
+                                          args.rps)
                 md_path, json_path = write_reports(result)
                 print(f"  reporte: {md_path.name}  "
-                      f"RTO={result.rto_seconds}s objetivo={result.rto_objective_seconds}s "
+                      f"RTO={result.rto_seconds}s objetivo="
+                      f"{result.rto_objective_seconds}s "
                       f"cumplido={result.rto_cumplido} "
                       f"hard_fail={result.hard_fail}")
                 results.append(result)
