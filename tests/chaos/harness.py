@@ -765,6 +765,7 @@ def run_scenario(scenario_id: str, mode: str, repeat: int,
     seed = json.loads(SEED_PATH.read_text(encoding="utf-8"))
     run_id = uuid.uuid4().hex[:8]
     started_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    t0 = time.monotonic()
 
     spec = _fault_spec(scenario_id, mode)
     recovery = _recovery_spec(scenario_id, mode, spec)
@@ -948,8 +949,6 @@ def run_scenario_C(mode: str, repeat: int,
     count = 20
     created_ids: list[str] = []
 
-    # Reponer inventario en noches distintas para que ninguna reserva sea
-    # rechazada por falta de cupo.
     base_day = dt.date.today() + dt.timedelta(days=5)
     for i in range(count):
         day = base_day + dt.timedelta(days=i)
@@ -959,7 +958,6 @@ def run_scenario_C(mode: str, repeat: int,
                   "to": (day + dt.timedelta(days=1)).isoformat(), "total": 5},
         )
 
-    # Crear 20 reservas con pago inmediato (simulate="ok").
     for i in range(count):
         key = f"chaos-c-{run_id}-{i}-{uuid.uuid4().hex[:6]}"
         day = base_day + dt.timedelta(days=i)
@@ -982,13 +980,11 @@ def run_scenario_C(mode: str, repeat: int,
         except Exception:
             pass
 
-    # Fallo: reiniciar reservation con reservas confirmadas en curso.
     _apply(spec)
     _apply(recovery)
     recovered = wait_healthy(recovery_container, timeout=120)
     t_recovered = time.monotonic() if recovered else None
 
-    # Esperar a que todas sigan en CONFIRMED tras el reinicio.
     stable_ok = False
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
@@ -997,7 +993,6 @@ def run_scenario_C(mode: str, repeat: int,
             break
         time.sleep(2)
 
-    # Cierre obligatorio: invariantes, no-pérdida, 1 cargo, 0 holds duplicados.
     close_ok = True
     close_error = None
     hard_fail = False
@@ -1027,7 +1022,6 @@ def run_scenario_C(mode: str, repeat: int,
         hard_fail = True
         hard_fail_reason = str(exc)
 
-    # Restaurar stack sano (finalizer).
     restore_ok = True
     try:
         unhealthy = [s for s, ok in stack_healthy().items() if not ok]
@@ -1105,7 +1099,6 @@ def run_scenario_D(mode: str, repeat: int,
     room = hotel["rooms"][0]
     customer = seed["customers"][0]
 
-    # Una reserva de línea base antes de la falla.
     key = f"chaos-d-{run_id}-base-{uuid.uuid4().hex[:6]}"
     day = dt.date.today() + dt.timedelta(days=10)
     body = {
@@ -1120,9 +1113,7 @@ def run_scenario_D(mode: str, repeat: int,
                 headers={"Idempotency-Key": key,
                          "X-Request-ID": f"d-{key}"})
 
-    # Fallo: parar postgres.
     _apply(spec)
-    # Contar errores 503 durante la caída (escrituras fall-close).
     errors_503 = 0
     end_fault = time.monotonic() + fault_seconds
     while time.monotonic() < end_fault:
@@ -1137,12 +1128,10 @@ def run_scenario_D(mode: str, repeat: int,
             errors_503 += 1
         time.sleep(0.5)
 
-    # Recuperación: arrancar postgres y esperar servicios healthy.
     _apply(recovery)
     recovered = wait_healthy(recovery_container, timeout=120)
     t_recovered = time.monotonic() if recovered else None
 
-    # RTO a escritura exitosa: reintentar hasta que una escritura funcione.
     rto_write = None
     w_deadline = time.monotonic() + 120
     while time.monotonic() < w_deadline:
@@ -1159,7 +1148,6 @@ def run_scenario_D(mode: str, repeat: int,
             pass
         time.sleep(0.5)
 
-    # Drenaje: una escritura más para confirmar estado estable.
     try:
         client.post(f"{PUBLIC_URL}/reservations", json=body,
                     headers={"Idempotency-Key":
@@ -1207,7 +1195,7 @@ def run_scenario_D(mode: str, repeat: int,
         pendiente_durante_falla=errors_503, pendiente_despues_drenaje=0,
         exito_baseline=100.0, exito_falla=0.0,
         restart_before=restart_before,
-        restart_after=restart_after,
+        restart_after={svc: restart_count(svc) for svc in SERVICES},
         health_before=stack_healthy(), health_after=stack_healthy(),
         hard_fail=hard_fail or (not restart_unchanged)
         or (not assert_no_loss_ok) or (not invariants_ok),
@@ -1273,7 +1261,7 @@ def run_scenario_E2(mode: str, repeat: int,
         try:
             r = client.post(f"{PUBLIC_URL}/reservations", json=body,
                             headers={"Idempotency-Key": key,
-                                     "X-Request-ID": f"e2-{key}"})
+                                     "X-Request-ID": f"c-{key}"})
             if r.status_code in (200, 201, 202):
                 return r.json().get("id")
         except Exception:
@@ -1285,7 +1273,6 @@ def run_scenario_E2(mode: str, repeat: int,
             if rid:
                 created_ids.append(rid)
 
-    # Esperar a que todas lleguen a CONFIRMED vía reconciliación.
     stable_ok = False
     deadline = time.monotonic() + 150
     while time.monotonic() < deadline:
@@ -1358,7 +1345,7 @@ def run_scenario_E2(mode: str, repeat: int,
         health_before=stack_healthy(), health_after=stack_healthy(),
         hard_fail=hard_fail or (not stable_ok),
         hard_fail_reason=hard_fail_reason or (
-            None if stable_ok else "no todas las reservas quedaron CONFIRMED"),
+            None if stable_ok else "no todas las reservas alcanzaron CONFIRMED"),
         metrics_by_phase={}, outage_windows=[],
         assertions={
             "invariantes_cero_violaciones": not hard_fail or "invariantes" not in str(hard_fail_reason),
@@ -1372,7 +1359,7 @@ def run_scenario_E2(mode: str, repeat: int,
 
 
 # ---------------------------------------------------------------------------
-# Escenario S: detener postgres, observar /ready y salud de Docker
+# Escenario S: parar postgres, observar /ready y salud de Docker
 # ---------------------------------------------------------------------------
 
 def run_scenario_S(mode: str, repeat: int,
@@ -1405,13 +1392,17 @@ def run_scenario_S(mode: str, repeat: int,
         "check_out": (day + dt.timedelta(days=1)).isoformat(),
         "payment": {"method": "card", "token": "tok_demo", "simulate": "ok"},
     }
-    client.post(f"{PUBLIC_URL}/reservations", json=body,
-                headers={"Idempotency-Key": key,
-                         "X-Request-ID": f"s-{key}"})
+    base_ok = False
+    try:
+        r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+                        headers={"Idempotency-Key": key,
+                                 "X-Request-ID": f"s-{key}"})
+        base_ok = r.status_code in (200, 201, 202)
+    except Exception:
+        base_ok = False
 
     _apply(spec)
     errors_503 = 0
-    errors_2xx = 0
     end_fault = time.monotonic() + fault_seconds
     while time.monotonic() < end_fault:
         try:
@@ -1421,8 +1412,6 @@ def run_scenario_S(mode: str, repeat: int,
                                      "X-Request-ID": f"s-w-{uuid.uuid4().hex[:6]}"})
             if r.status_code == 503:
                 errors_503 += 1
-            elif r.status_code in (200, 201, 202):
-                errors_2xx += 1
         except Exception:
             errors_503 += 1
         time.sleep(0.5)
