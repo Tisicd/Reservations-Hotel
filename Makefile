@@ -1,4 +1,4 @@
-.PHONY: up up-dev down test lint clean clean-all secrets deps seed invariants e2e smoke gateway-refresh snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel snapshot-notification build images prune ensure-images
+.PHONY: up up-dev down test lint clean clean-all secrets deps seed invariants e2e smoke gateway-refresh snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel snapshot-notification build images prune ensure-images chaos
 
 PYTHON ?= python
 VENV := .venv
@@ -33,6 +33,14 @@ images:
 prune:
 	docker image prune -f --filter "label=com.docker.compose.project=reservas-platform"
 	docker image prune -f --filter "label=com.reservas.project=reservas-platform"
+
+SCEN ?= all
+REPEAT ?= 1
+
+# Ejecuta escenarios de caos sobre el stack levantado (nunca reconstruye).
+# Precondicion: imagenes construidas, stack healthy y semillado.
+chaos: deps ensure-images
+	@$(PYTHON) tests/chaos/harness.py --scenario $(SCEN) --repeat $(REPEAT)
 
 # Verifica que existan las imagenes :local. Si falta alguna, falla indicando
 # 'make build'. up/test/e2e/smoke NUNCA construyen imagenes.
