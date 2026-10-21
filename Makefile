@@ -1,4 +1,4 @@
-.PHONY: up up-dev down test lint clean clean-all secrets deps seed invariants e2e smoke gateway-refresh snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel snapshot-notification
+.PHONY: up up-dev down test lint clean clean-all secrets deps seed invariants e2e smoke gateway-refresh snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel snapshot-notification build images prune ensure-images
 
 PYTHON ?= python
 VENV := .venv
@@ -20,18 +20,37 @@ deps:
 	$(VENV_PY) -m pip install -q --upgrade pip
 	$(VENV_PY) -m pip install -q -r tests/requirements.txt
 
-up: secrets
-	docker compose up -d --build --wait
+# Construye las imagenes :local de los 6 servicios (cache de capas reutilizable).
+build:
+	docker compose build
 
-up-dev: secrets
-	$(COMPOSE_DEV) up -d --build --wait
+# Tabla de imagenes del proyecto + recuento de huerfanas.
+images:
+	$(PYTHON) scripts/docker_images.py
+
+# Elimina imagenes dangling del proyecto. Filtra por label para no tocar
+# imagenes de otros proyectos. NO usa prune global.
+prune:
+	docker image prune -f --filter "label=com.docker.compose.project=reservas-platform"
+	docker image prune -f --filter "label=com.reservas.project=reservas-platform"
+
+# Verifica que existan las imagenes :local. Si falta alguna, falla indicando
+# 'make build'. up/test/e2e/smoke NUNCA construyen imagenes.
+ensure-images:
+	@$(PYTHON) scripts/docker_images.py --check
+
+up: secrets ensure-images
+	docker compose up -d --no-build --wait
+
+up-dev: secrets ensure-images
+	$(COMPOSE_DEV) up -d --no-build --wait
 
 # Tras recrear contenedores, nginx puede conservar IPs viejas hasta el TTL del
 # resolver. Reiniciarlo deja el stack determinista para pruebas y smoke.
 gateway-refresh:
-	$(COMPOSE_DEV) up -d --wait
+	$(COMPOSE_DEV) up -d --no-build --wait
 	$(COMPOSE_DEV) restart gateway
-	$(COMPOSE_DEV) up -d --wait gateway
+	$(COMPOSE_DEV) up -d --no-build --wait gateway
 
 down:
 	docker compose down
@@ -57,7 +76,7 @@ lint: deps
 	cd services/notification && $(CURDIR)/$(VENV_PY) -m ruff check .
 	cd services/notification && $(CURDIR)/$(LINT_IMPORTS)
 
-test: deps gateway-refresh
+test: deps ensure-images gateway-refresh
 	$(VENV_PY) -m pytest tests/infra
 	-$(COMPOSE_DEV) stop availability-worker payment-worker reservation-worker
 	cd services/availability && $(CURDIR)/$(VENV_PY) -m pytest
@@ -86,7 +105,7 @@ invariants: deps
 e2e: up-dev gateway-refresh seed
 	$(VENV_PY) -m pytest tests/e2e -q
 
-smoke: deps gateway-refresh
+smoke: deps ensure-images gateway-refresh
 	$(VENV_PY) -m pytest tests/infra/test_gateway.py -q
 
 snapshot-customer: deps

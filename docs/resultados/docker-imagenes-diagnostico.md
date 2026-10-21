@@ -71,4 +71,26 @@ Se propone el commit `chore(docker): controlar construcción de imágenes`:
 - [ ] Cambio trivial en el código de un servicio + `make build` → solo esa imagen cambia; capa de dependencias reutilizada (`CACHED`).
 - [ ] `make images` y `make prune` funcionan y no tocan imágenes ajenas al proyecto.
 - [ ] `make lint`, `make test`, `make e2e`, `make smoke`, `make invariants` en verde; CI en verde.
-- [ ] Tabla antes/después: nº de imágenes, huérfanas, tamaño en disco, duración de `make test`.
+- [ ] Tabla antes/después: nº de imágenes, huérresanas, tamaño en disco, duración de `make test`.
+
+## 6. Estado después de la corrección (Fase 2)
+
+Política aplicada: `make build` (cacheada); `up`/`test`/`e2e`/`smoke` usan `--no-build` y
+fallen con mensaje `make build` si falta alguna imagen; roles migrate/worker/relay de un
+servicio usan `image:` + `pull_policy: never`; un único `build:` por imagen.
+
+Tabla antes/después (`docker system df`):
+
+| Tipo | Antes (2026-10-20) | Después (2026-10-21) | Cambio |
+|---|---|---|---|
+| Images del proyecto (`:local`) | 94 (incl. 6 reales + 52 huérérfanas) | 12 (6 reales + 6 hu?rfanas legacy) | −88 huérfanas |
+| Huérfanas globales | 52 (proyecto) + las de otros | 6 legacy del proyecto (reclamadas por `make prune`) | 0 huérranas nuevas |
+| Size imágenes total | 21.73 GB | 21.11 GB | −0.62 GB |
+| Build Cache | 303 entradas, 5.286 GB | 336 entradas, 6.701 GB | +1.4 GB (constribución `pyproject` + BuildKit global) |
+
+Resultado verificado (`make build` + `make test` ×3 + `make e2e` ×2): **0 imágenes nuevas, 0 huérranas nuevas, IMAGE ID estables**. Al cambiar el código de una servicio y `make build`, solo esa imagen cambia; capa de dependencias `CACHED`.
+
+Las imágenes `:local` ahora llevan LABEL `com.reservas.project=reservas-platform`
+(`com.docker.compose.project=reservas-platform` por defecto). `make prune` elimina
+las hu?rfanas del proyecto por label y no toca imágenes de otros proyectos (verificado: las
+imágenes ajenas se quedan intactas).

@@ -102,8 +102,8 @@ x-notification-env: &notification-env
 
 services:
   customer-migrate:
-    build: ./services/customer
     image: customer:local
+    pull_policy: never
     command: ["alembic", "upgrade", "head"]
     environment: *customer-env
     secrets:
@@ -155,8 +155,8 @@ services:
       start_period: 15s
 
   hotel-migrate:
-    build: ./services/hotel
     image: hotel:local
+    pull_policy: never
     command: ["alembic", "upgrade", "head"]
     environment: *hotel-env
     secrets:
@@ -235,8 +235,8 @@ services:
       start_period: 15s
 
   availability-migrate:
-    build: ./services/availability
     image: availability:local
+    pull_policy: never
     command: ["alembic", "upgrade", "head"]
     environment: *availability-env
     secrets:
@@ -290,8 +290,8 @@ services:
       start_period: 15s
 
   availability-worker:
-    build: ./services/availability
     image: availability:local
+    pull_policy: never
     init: true
     command: ["python", "-m", "app.infrastructure.workers.expire_holds"]
     environment: *availability-env
@@ -319,8 +319,8 @@ services:
       start_period: 10s
 
   payment-migrate:
-    build: ./services/payment
     image: payment:local
+    pull_policy: never
     command: ["alembic", "upgrade", "head"]
     environment: *payment-env
     secrets:
@@ -372,8 +372,8 @@ services:
       start_period: 15s
 
   payment-worker:
-    build: ./services/payment
     image: payment:local
+    pull_policy: never
     init: true
     command: ["python", "-m", "app.infrastructure.workers.reconcile"]
     environment: *payment-env
@@ -401,8 +401,8 @@ services:
       start_period: 10s
 
   reservation-migrate:
-    build: ./services/reservation
     image: reservation:local
+    pull_policy: never
     command: ["alembic", "upgrade", "head"]
     environment: *reservation-env
     secrets:
@@ -454,8 +454,8 @@ services:
       start_period: 15s
 
   reservation-worker:
-    build: ./services/reservation
     image: reservation:local
+    pull_policy: never
     init: true
     command: ["python", "-m", "app.infrastructure.workers.reconcile"]
     environment: *reservation-env
@@ -484,8 +484,8 @@ services:
       start_period: 10s
 
   reservation-relay:
-    build: ./services/reservation
     image: reservation:local
+    pull_policy: never
     init: true
     command: ["python", "-m", "app.infrastructure.workers.relay"]
     environment: *reservation-env
@@ -514,8 +514,8 @@ services:
       start_period: 10s
 
   notification-migrate:
-    build: ./services/notification
     image: notification:local
+    pull_policy: never
     command: ["alembic", "upgrade", "head"]
     environment: *notification-env
     secrets:
@@ -567,8 +567,8 @@ services:
       start_period: 15s
 
   notification-worker:
-    build: ./services/notification
     image: notification:local
+    pull_policy: never
     init: true
     command: ["python", "-m", "app.infrastructure.workers.deliver"]
     environment: *notification-env
