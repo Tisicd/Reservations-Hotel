@@ -66,11 +66,16 @@ def main() -> None:
             {"id": room_id, "name": f"Perf {index:03d}", "capacity": 2,
              "price_per_night_cents": 5000, "currency": "USD"})
         _check(status, (200, 201), f"{HOTEL_URL}/hotels/{HOTEL_ID}/rooms", body)
-        status, body = _request(
-            "PUT", f"{AVAILABILITY_URL}/inventory/{room_id}",
-            {"hotel_id": HOTEL_ID, "from": start.isoformat(),
-             "to": end.isoformat(), "total": TOTAL})
-        _check(status, (200,), f"{AVAILABILITY_URL}/inventory/{room_id}", body)
+        # El servicio limita a 30 noches por PUT: trocear la ventana.
+        cursor = start
+        while cursor < end:
+            chunk_end = min(cursor + dt.timedelta(days=30), end)
+            status, body = _request(
+                "PUT", f"{AVAILABILITY_URL}/inventory/{room_id}",
+                {"hotel_id": HOTEL_ID, "from": cursor.isoformat(),
+                 "to": chunk_end.isoformat(), "total": TOTAL})
+            _check(status, (200,), f"{AVAILABILITY_URL}/inventory/{room_id}", body)
+            cursor = chunk_end
         rooms.append(room_id)
 
     state = {
