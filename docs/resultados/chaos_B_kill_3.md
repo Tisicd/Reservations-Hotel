@@ -9,28 +9,28 @@
 - fault_s: 20
 - drain_s: 20
 - semilla: `D:\github\tlhotel\reservas-platform\secrets\seed.json`
-- iniciado: 2026-10-22T13:53:22.758756+00:00
-- finalizado: 2026-10-22T13:54:50.551590+00:00
+- iniciado: 2026-10-22T18:12:35.167319+00:00
+- finalizado: 2026-10-22T18:13:55.479096+00:00
 
 ## Línea de tiempo (segundos desde arranque)
 - baseline: 0 → 15.0
-- falla: 15.4 → 35.4
-- recuperación: healthy en t=42.2
-- fin: 62.3
+- falla: 15.3 → 35.3
+- recuperación: healthy en t=42.8
+- fin: 62.8
 
 ## Métricas por fase (peticiones de fondo)
 | fase | peticiones | éxito % | errores por clase | p50_ms | p95_ms | p99_ms |
 |---|---|---|---|---|---|---|
-| baseline | 23 | 100.0 | — | 8.9 | 45.0 | 47.2 |
-| falla | 28 | 96.43 | upstream_502_504=1 | 8.1 | 48.6 | 59.9 |
-| drenaje | 30 | 100.0 | — | 7.7 | 37.0 | 38.7 |
-| falla_retry | 31 | 100.0 | — | 9.5 | 50.9 | 62.2 |
+| baseline | 23 | 100.0 | — | 7.3 | 185.8 | 208.5 |
+| falla | 28 | 96.43 | upstream_502_504=1 | 9.5 | 193.6 | 236.0 |
+| drenaje | 30 | 100.0 | — | 7.8 | 186.6 | 196.1 |
+| falla_retry | 28 | 100.0 | — | 8.1 | 198.4 | 1707.9 |
 
 ## Ventanas de indisponibilidad (canario)
 (ninguna ventana detectada)
 
 - TTD: no detectado
-- RTO medido: 0.42 s
+- RTO medido: 0.40 s
 - RTO objetivo: 2 s
 - RTO cumplido: **sí**
 
@@ -58,9 +58,12 @@
 - exito_con_reintento >= 99%: sí
 
 ## Las 5 preguntas del enunciado
-1. **¿Qué componentes se afectaron?** 27/28 peticiones OK (96.43%), errores {'upstream_502_504': 1}, p95=48.6 ms.
+1. **¿Qué componentes se afectaron?** 27/28 peticiones OK (96.43%), errores {'upstream_502_504': 1}, p95=193.6 ms.
 2. **¿Cuáles siguieron funcionando?** el flujo respondió 96.43% durante la falla (baseline 100.0%).
 3. **¿Qué información se perdió?** ninguna (no_perdida_datos OK); outbox pendiente durante la falla=0, tras drenaje=0.
-4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=0.42030139999405947 s (objetivo 2 s, cumplido=sí).
+4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=0.4037979999993695 s (objetivo 2 s, cumplido=sí).
 5. **¿Qué mecanismo mejoraría la resiliencia?** health check activo y reintentos acotados; autoescalado en multinodo.
+
+## Evidencia adicional (Docker health)
+Timeline (s desde t0): ultima buena antes de la falla=15.035992100005387; primer fallo=n/d; primer exito sostenido=15.748790900004678; RTO=0.4037979999993695 s.
 

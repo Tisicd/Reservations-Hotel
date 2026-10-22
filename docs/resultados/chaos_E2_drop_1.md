@@ -9,14 +9,14 @@
 - fault_s: 20
 - drain_s: 20
 - semilla: `D:\github\tlhotel\reservas-platform\secrets\seed.json`
-- iniciado: 2026-10-22T14:08:41.886533+00:00
-- finalizado: 2026-10-22T14:08:52.600215+00:00
+- iniciado: 2026-10-22T18:26:42.929092+00:00
+- finalizado: 2026-10-22T18:26:53.335499+00:00
 
 ## Línea de tiempo (segundos desde arranque)
 - baseline: 0 → 15.0
 - falla: 0.0 → 20.0
 - recuperación: no alcanzó healthy
-- fin: 10.7
+- fin: 10.4
 
 ## Métricas por fase (peticiones de fondo)
 | fase | peticiones | éxito % | errores por clase | p50_ms | p95_ms | p99_ms |
@@ -62,5 +62,5 @@
 5. **¿Qué mecanismo mejoraría la resiliencia?** conciliación contra extractos del proveedor real y webhooks.
 
 ## Evidencia adicional (Docker health)
-creadas=20/20; estados finales={'07e864d6-f6da-4230-b85a-552e6a840788': 'CONFIRMED', '679082a5-17b2-498e-a35c-cec0135ac0ea': 'CONFIRMED', '820dfc9d-9cd3-4b85-b6e4-165247076b01': 'CONFIRMED', '0352eeff-3858-46a7-9313-0e0be626f763': 'CONFIRMED', '7427fa43-5848-4f75-9cb7-54ab044ffc11': 'CONFIRMED', 'f6bad128-abe5-45ae-90d8-98c5369ead4f': 'CONFIRMED', 'b8aa5d0f-9a1b-47f7-bb6d-0fc8286a12f0': 'CONFIRMED', 'a5510bc2-dacd-4f3a-9dff-b8396688a4ad': 'CONFIRMED', '4335438b-eb6c-4900-a105-0a026e5d44a8': 'CONFIRMED', '10032364-8c15-4426-8818-8e319264c980': 'CONFIRMED', '0f083d7e-cd06-4dc9-a9f8-e8c6ab88d9ab': 'CONFIRMED', 'ffd036ec-3e32-4aba-98f4-d21a158b0b2c': 'CONFIRMED', '16b7d1b4-8029-4776-8f5c-7cd0bb8d28c9': 'CONFIRMED', '223a52f1-d947-44a4-90e6-2027f7a7908e': 'CONFIRMED', 'fbb54654-9b0f-4704-95b7-400afe7e702d': 'CONFIRMED', '5f18b10e-bbad-4cba-b922-fd4956883945': 'CONFIRMED', 'aa204a0f-0b3f-4c93-af94-c294a493bf89': 'CONFIRMED', 'b705c3e5-594e-4d45-aef8-b3234e8abf95': 'CONFIRMED', '82cadefb-c828-4ea5-bce0-fbb932a3d44b': 'CONFIRMED', '54a07e0d-5422-4724-95de-242d4cb9551b': 'CONFIRMED'}; MANUAL_REVIEW=0; tiempo a estado final por reserva (API sincrona) ms: p50=770.1 p95=1047.9 max=1061.7. Concurrencia limitada a 10 por el limit_conn del gateway (20 concurrentes => ~10 respuestas 503 de nginx); ver docs/resultados/chaos_E2_hallazgo.md.
+creadas=20/20; estados finales={'fc2ee089-b24a-48e5-9eac-69682261cafe': 'CONFIRMED', 'f9c769d1-2d9b-4f62-b991-05d60ad7fbc5': 'CONFIRMED', '82f43f72-718c-48ba-9f00-259b0a01363f': 'CONFIRMED', 'e6910a99-460f-4f02-9f9a-d10f73eeca09': 'CONFIRMED', 'ef07dd66-06a8-467b-90bc-f8e0efbee60e': 'CONFIRMED', '9c931155-b682-401f-ae61-fb0d2ea1a482': 'CONFIRMED', '86e68fdb-d802-422c-b334-71f0c0c371eb': 'CONFIRMED', '2190ff42-8edd-4bf3-938c-6c663ee2bd32': 'CONFIRMED', '7fed7a53-3390-470c-b84c-c2fee5a029b1': 'CONFIRMED', '5a2536ae-7d55-4d15-8647-3b2f38673579': 'CONFIRMED', '8b2995ba-640b-4e49-976f-4019ae1d5d9e': 'CONFIRMED', 'c789d733-0b3d-43c9-8c1a-a36db13d45de': 'CONFIRMED', '85e43fef-b9ee-42f3-b071-225ef82f5ace': 'CONFIRMED', '5081303f-5aa8-4414-9deb-0a44b7afba57': 'CONFIRMED', '2c55ca0b-4d36-437f-a481-220ff782287c': 'CONFIRMED', '89204dd5-25f4-4957-bb3e-26c60e6dcec4': 'CONFIRMED', '0f1795f1-e186-412e-bddc-e8fe756c44ae': 'CONFIRMED', 'c3bd9a79-ee88-4bb5-a53c-a72accb59646': 'CONFIRMED', '6c34b696-41d3-4172-a9d7-b154487a8508': 'CONFIRMED', '4967f6f4-37df-44e4-9a64-8f69d1e3d97a': 'CONFIRMED'}; MANUAL_REVIEW=0; tiempo a estado final por reserva (API sincrona) ms: p50=705.3 p95=890.0 max=913.9. Concurrencia limitada a 10 por el limit_conn del gateway (20 concurrentes => ~10 respuestas 429 de nginx); ver docs/resultados/chaos_E2_hallazgo.md.
 

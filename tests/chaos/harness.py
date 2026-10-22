@@ -1155,7 +1155,7 @@ def run_scenario_C(mode: str, repeat: int,
 
     # Noches únicas por ejecución para no agotar inventario entre repeticiones.
     base_day = dt.date.today() + dt.timedelta(
-        days=1000 + uuid.uuid4().int % 2000)
+        days=1000 + int(time.time()) % 1000000)
     for i in range(count):
         day = base_day + dt.timedelta(days=i)
         client.put(
@@ -1304,7 +1304,7 @@ def run_scenario_D(mode: str, repeat: int,
     room = hotel["rooms"][0]
     customer = seed["customers"][0]
     base_day = dt.date.today() + dt.timedelta(
-        days=1000 + uuid.uuid4().int % 2000)
+        days=1000 + int(time.time()) % 1000000)
     client.put(
         f"{ADMIN_URL}/availability/inventory/{room['id']}",
         json={"hotel_id": hotel["id"], "from": base_day.isoformat(),
@@ -1476,7 +1476,7 @@ def run_scenario_E2(mode: str, repeat: int,
 
     # Noches únicas por ejecución para no agotar inventario entre repeticiones.
     base_day = dt.date.today() + dt.timedelta(
-        days=1000 + uuid.uuid4().int % 2000)
+        days=1000 + int(time.time()) % 1000000)
     for i in range(count):
         day = base_day + dt.timedelta(days=i)
         client.put(
@@ -1674,7 +1674,7 @@ def run_scenario_S(mode: str, repeat: int,
     room = hotel["rooms"][0]
     customer = seed["customers"][0]
     base_day = dt.date.today() + dt.timedelta(
-        days=1000 + uuid.uuid4().int % 2000)
+        days=1000 + int(time.time()) % 1000000)
     client.put(
         f"{ADMIN_URL}/availability/inventory/{room['id']}",
         json={"hotel_id": hotel["id"], "from": base_day.isoformat(),
@@ -1875,7 +1875,7 @@ def run_scenario_E1(mode: str, repeat: int,
     room = hotel["rooms"][0]
     customer = seed["customers"][0]
     base_day = dt.date.today() + dt.timedelta(
-        days=1000 + uuid.uuid4().int % 2000)
+        days=1000 + int(time.time()) % 1000000)
     days = [base_day + dt.timedelta(days=i) for i in range(21)]
     for day in days:
         client.put(
@@ -2115,7 +2115,7 @@ def run_scenario_E3(mode: str, repeat: int,
     room = hotel["rooms"][0]
     customer = seed["customers"][0]
     base_day = dt.date.today() + dt.timedelta(
-        days=1000 + uuid.uuid4().int % 2000)
+        days=1000 + int(time.time()) % 1000000)
     for i in range(6):
         day = base_day + dt.timedelta(days=i)
         client.put(
@@ -2207,6 +2207,112 @@ def run_scenario_E3(mode: str, repeat: int,
             "variante": mode,
         },
         close_ok=invariants_ok, close_error=close_error,
+        evidence=evidence,
+    )
+
+
+
+# ---------------------------------------------------------------------------
+# Escenario E4: reinicio ordenado de PostgreSQL con servicios activos
+# ---------------------------------------------------------------------------
+
+def run_scenario_E4(mode: str, repeat: int,
+                    baseline_seconds: float, fault_seconds: float,
+                    drain_seconds: float, rps: float) -> ScenarioResult:
+    seed = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+    run_id = uuid.uuid4().hex[:8]
+    started_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    t0 = time.monotonic()
+    restart_before = {svc: restart_count(svc) for svc in SERVICES}
+    snapshot_before = snapshot_state()
+    close_error = None
+    hard_fail_reason = None
+    client = httpx.Client(timeout=10)
+    app_services = ["customer", "hotel", "availability", "payment",
+                    "reservation", "notification"]
+
+    # Reinicio ORDENADO (SIGTERM + arranque), no abrupto.
+    t_fault = time.monotonic()
+    _run([*COMPOSE, "restart", "postgres"])
+    cid = primary_container("postgres")
+    recovered = wait_healthy(cid, timeout=120) if cid else False
+    ready_at: dict[str, float] = {}
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        for svc in app_services:
+            if svc in ready_at:
+                continue
+            try:
+                r = client.get(f"{ADMIN_URL}/{svc}/ready")
+                if r.status_code == 200:
+                    ready_at[svc] = round(time.monotonic() - t_fault, 2)
+            except Exception:
+                pass
+        if len(ready_at) == len(app_services):
+            break
+        time.sleep(0.5)
+
+    restart_after = {svc: restart_count(svc) for svc in SERVICES}
+    app_restart_unchanged = all(
+        restart_after[s] == restart_before[s]
+        for s in SERVICES if s != "postgres")
+
+    snapshot_after = snapshot_state()
+    try:
+        assert_no_loss(snapshot_before, snapshot_after)
+        no_loss = True
+    except AssertionError as exc:
+        no_loss = False
+        close_error = str(exc)
+    violations = check_all(grace_seconds=60)
+    invariants_ok = len(violations) == 0
+    hard_fail = False
+    if violations:
+        hard_fail = True
+        hard_fail_reason = "invariantes: " + "; ".join(
+            str(v) for v in violations[:5])
+
+    rto = max(ready_at.values()) if ready_at else None
+    objetivo = _objective_for("E4")
+    cumplido = rto is not None and rto <= objetivo
+    t_end = time.monotonic()
+    finished_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    evidence = (
+        f"Reinicio ordenado de postgres (docker compose restart). "
+        f"Reconexion por servicio (s desde el restart): {ready_at}. "
+        f"Servicios de aplicacion sin reiniciar={app_restart_unchanged} "
+        f"(RestartCount antes={restart_before}, despues={restart_after}). "
+        f"healthy postgres={recovered}; invariantes={len(violations)}."
+    )
+
+    return ScenarioResult(
+        scenario_id="E4", mode=mode, repeat=repeat,
+        baseline_seconds=baseline_seconds, fault_seconds=fault_seconds,
+        drain_seconds=drain_seconds, rps=rps, seed_file=str(SEED_PATH),
+        started_at=started_at, finished_at=finished_at,
+        t_baseline=0.0, t_fault=0.0, t_recovered=None,
+        t_end=t_end - t0, rtt_ttd_seconds=None, rto_seconds=rto,
+        rto_objective_seconds=objetivo, rto_cumplido=cumplido,
+        pendiente_durante_falla=0, pendiente_despues_drenaje=0,
+        exito_baseline=100.0, exito_falla=0.0,
+        restart_before=restart_before, restart_after=restart_after,
+        health_before=stack_healthy(), health_after=stack_healthy(),
+        hard_fail=hard_fail or (not app_restart_unchanged) or (not no_loss)
+        or (not invariants_ok) or (len(ready_at) != len(app_services)),
+        hard_fail_reason=hard_fail_reason or (
+            None if (not hard_fail and app_restart_unchanged and no_loss
+                     and invariants_ok
+                     and len(ready_at) == len(app_services))
+            else "servicios reiniciados, no reconectaron o fallo de integridad"),
+        metrics_by_phase={}, outage_windows=[],
+        assertions={
+            "invariantes_cero_violaciones": invariants_ok,
+            "no_perdida_datos": no_loss,
+            "servicios_app_sin_reiniciar": app_restart_unchanged,
+            "todos_ready": len(ready_at) == len(app_services),
+            "rto_reconexion_cumplido": cumplido,
+        },
+        close_ok=no_loss, close_error=close_error,
         evidence=evidence,
     )
 
@@ -2355,13 +2461,13 @@ def write_reports(result: ScenarioResult) -> tuple[pathlib.Path, pathlib.Path]:
 # ---------------------------------------------------------------------------
 
 def _list_scenarios() -> list[str]:
-    return ["A", "B", "C", "D", "E1", "E2", "E3", "S"]
+    return ["A", "B", "C", "D", "E1", "E2", "E3", "E4", "S"]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ejecutar escenarios de caos.")
     parser.add_argument("--scenario", default="all",
-                        help="A | B | C | D | E1 | E2 | E3 | S | all (default: all)")
+                        help="A | B | C | D | E1 | E2 | E3 | E4 | S | all (default: all)")
     parser.add_argument("--repeat", type=int, default=1,
                         help="número de repeticiones (default: 1)")
     parser.add_argument("--baseline-seconds", type=float,
@@ -2384,7 +2490,7 @@ def main(argv: list[str] | None = None) -> int:
     scenarios = _list_scenarios() if args.scenario == "all" else [args.scenario]
     modes = {"A": ["api", "worker"], "B": ["kill", "kill9"],
              "C": ["kill9", "stop"], "D": ["stop"], "E1": ["stop", "pkill9"],
-             "E2": ["drop"], "E3": ["A", "B"], "S": ["stop"]}
+             "E2": ["drop"], "E3": ["A", "B"], "E4": ["restart"], "S": ["stop"]}
 
     results: list[ScenarioResult] = []
     any_hard_fail = False
@@ -2407,6 +2513,12 @@ def main(argv: list[str] | None = None) -> int:
                                                 args.rps)
                 elif scen == "E2":
                     result = run_scenario_E2(mode, rep,
+                                             args.baseline_seconds,
+                                             args.fault_seconds,
+                                             args.drain_seconds,
+                                             args.rps)
+                elif scen == "E4":
+                    result = run_scenario_E4(mode, rep,
                                              args.baseline_seconds,
                                              args.fault_seconds,
                                              args.drain_seconds,

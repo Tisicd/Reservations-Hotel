@@ -9,22 +9,22 @@
 - fault_s: 20
 - drain_s: 20
 - semilla: `D:\github\tlhotel\reservas-platform\secrets\seed.json`
-- iniciado: 2026-10-22T13:56:16.162011+00:00
-- finalizado: 2026-10-22T13:57:29.798810+00:00
+- iniciado: 2026-10-22T18:17:55.423024+00:00
+- finalizado: 2026-10-22T18:19:08.154258+00:00
 
 ## Línea de tiempo (segundos desde arranque)
 - baseline: 0 → 15.0
 - falla: 15.4 → 35.4
-- recuperación: healthy en t=35.8
-- fin: 55.8
+- recuperación: healthy en t=35.7
+- fin: 55.9
 
 ## Métricas por fase (peticiones de fondo)
 | fase | peticiones | éxito % | errores por clase | p50_ms | p95_ms | p99_ms |
 |---|---|---|---|---|---|---|
-| baseline | 23 | 100.0 | — | 7.7 | 36.0 | 36.9 |
-| falla | 30 | 100.0 | — | 7.9 | 51.6 | 70.6 |
-| drenaje | 30 | 100.0 | — | 7.3 | 42.5 | 44.1 |
-| falla_retry | 30 | 100.0 | — | 7.5 | 48.7 | 52.3 |
+| baseline | 23 | 100.0 | — | 7.3 | 187.1 | 189.3 |
+| falla | 30 | 100.0 | — | 7.5 | 196.4 | 201.0 |
+| drenaje | 30 | 100.0 | — | 7.7 | 188.1 | 198.2 |
+| falla_retry | 30 | 100.0 | — | 7.1 | 198.3 | 205.4 |
 
 ## Ventanas de indisponibilidad (canario)
 (ninguna ventana detectada)
@@ -58,9 +58,12 @@
 - exito_con_reintento >= 99%: sí
 
 ## Las 5 preguntas del enunciado
-1. **¿Qué componentes se afectaron?** 30/30 peticiones OK (100.0%), errores {}, p95=51.6 ms.
+1. **¿Qué componentes se afectaron?** 30/30 peticiones OK (100.0%), errores {}, p95=196.4 ms.
 2. **¿Cuáles siguieron funcionando?** el flujo respondió 100.0% durante la falla (baseline 100.0%).
 3. **¿Qué información se perdió?** ninguna (no_perdida_datos OK); outbox pendiente durante la falla=0, tras drenaje=0.
-4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=0.20970310000120662 s (objetivo 2 s, cumplido=sí).
+4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=0.20874110001022927 s (objetivo 2 s, cumplido=sí).
 5. **¿Qué mecanismo mejoraría la resiliencia?** health check activo y reintentos acotados; autoescalado en multinodo.
+
+## Evidencia adicional (Docker health)
+Timeline (s desde t0): ultima buena antes de la falla=15.00158029999875; primer fallo=n/d; primer exito sostenido=15.568850600000587; RTO=0.20874110001022927 s.
 
