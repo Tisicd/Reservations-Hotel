@@ -7,6 +7,7 @@ from tests.invariants.checker import (
     assert_no_loss,
     check_availability,
     check_cross,
+    check_outbox_backlog_old,
     check_payment,
     check_reservation,
     open_connections,
@@ -326,3 +327,19 @@ def test_assert_no_loss():
     assert_no_loss(before, {"reservations": 3, "events": 11})
     with pytest.raises(AssertionError):
         assert_no_loss(before, {"reservations": 2, "events": 10})
+
+
+def test_outbox_backlog_old(conns):
+    conn = conns["notification_db"]
+    conn.execute(
+        sa.text(
+            "INSERT INTO notifications (id, event_id, type, reservation_id, "
+            "customer_id, payload, status, created_at) VALUES "
+            "(gen_random_uuid(), gen_random_uuid(), 'reservation.confirmed', "
+            "gen_random_uuid(), gen_random_uuid(), '{}'::jsonb, 'PENDING', "
+            "now() - interval '10 minutes')"
+        )
+    )
+    codes = {violation.code for violation in check_outbox_backlog_old(conn)}
+    assert "OUTBOX_BACKLOG_OLD" in codes
+

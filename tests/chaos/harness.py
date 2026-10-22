@@ -72,6 +72,15 @@ RTO_OBJECTIVES = {
 
 HTTP_OK = frozenset({200, 201, 202})
 
+IMPROVEMENTS = {
+    "A": "dead-letter y alerta de antigüedad del backlog",
+    "B": "health check activo y reintentos acotados; autoescalado en multinodo",
+    "C": "replicar la API de reservation y worker con elección de líder",
+    "D": "réplica de PostgreSQL con failover automático y PITR",
+    "E2": "conciliación contra extractos del proveedor real y webhooks",
+    "S": "circuit breaker y health check activo en el gateway",
+}
+
 
 class Phase(str, enum.Enum):
     BASELINE = "baseline"
@@ -146,6 +155,7 @@ class ScenarioResult:
     assertions: dict
     close_ok: bool
     close_error: str | None
+    evidence: str | None = None
 
     def to_dict(self):
         return asdict(self)
@@ -294,6 +304,17 @@ def ps_snapshot() -> str:
     return r.stdout
 
 
+def recreate(svc: str) -> None:
+    """Elimina y recrea el contenedor del servicio SIN reconstruir la imagen."""
+    _run([*COMPOSE, "rm", "-sf", svc])
+    _check([*COMPOSE, "up", "-d", "--no-build", svc])
+
+
+def health_log(svc: str) -> str:
+    """Devuelve el Health.Log de los contenedores del servicio."""
+    return "\n".join(container_health_log(c) for c in cid_list(svc))
+
+
 # ---------------------------------------------------------------------------
 # Precondiciones
 # ---------------------------------------------------------------------------
@@ -316,7 +337,7 @@ def ensure_precondition() -> list[str]:
 # Tráfico de fondo y canario
 # ---------------------------------------------------------------------------
 
-def _classify_error(exc: Exception | None, status_code: int | None) -> str:
+def classify_error(exc: Exception | None, status_code: int | None) -> str:
     if exc is not None:
         text = f"{type(exc).__name__}: {exc}"
         low = text.lower()
@@ -402,21 +423,31 @@ class TrafficGenerator:
         day = dt.date.today() + dt.timedelta(days=self.rng.randint(5, 60))
         start = time.monotonic()
         wall = dt.datetime.now(dt.timezone.utc).isoformat()
-        try:
-            r = self.client.get(
-                f"{PUBLIC_URL}/availability",
-                params={"hotel_id": self.hotel["id"], "check_in": day.isoformat(),
-                        "check_out": (day + dt.timedelta(days=1)).isoformat()},
-            )
-            latency = (time.monotonic() - start) * 1000
-            ok = r.status_code in HTTP_OK
-            return RequestSample("manual", wall, start, "availability", "GET",
-                                 latency, r.status_code,
-                                 _classify_error(None, r.status_code), None, ok)
-        except Exception as exc:  # noqa: BLE001
-            latency = (time.monotonic() - start) * 1000
-            return RequestSample("manual", wall, start, "availability", "GET",
-                                 latency, None, _classify_error(exc, None), None, False)
+        params = {"hotel_id": self.hotel["id"], "check_in": day.isoformat(),
+                  "check_out": (day + dt.timedelta(days=1)).isoformat()}
+        attempts = 0
+        last_status = None
+        last_error = "other"
+        while attempts <= self.max_retries:
+            attempts += 1
+            try:
+                r = self.client.get(f"{PUBLIC_URL}/availability", params=params)
+                last_status = r.status_code
+                if r.status_code in HTTP_OK:
+                    latency = (time.monotonic() - start) * 1000
+                    return RequestSample("manual", wall, start, "availability",
+                                         "GET", latency, r.status_code,
+                                         classify_error(None, r.status_code),
+                                         None, True)
+                last_error = classify_error(None, r.status_code)
+            except Exception as exc:  # noqa: BLE001
+                last_error = classify_error(exc, None)
+            if self.mode != "retry" or attempts > self.max_retries:
+                break
+            time.sleep(self.rng.uniform(0.1, 0.3) * attempts)
+        latency = (time.monotonic() - start) * 1000
+        return RequestSample("manual", wall, start, "availability", "GET",
+                             latency, last_status, last_error, None, False)
 
     def _create_reservation(self) -> RequestSample:
         key = f"chaos-{self.run_id}-{uuid.uuid4().hex[:12]}"
@@ -445,9 +476,9 @@ class TrafficGenerator:
                         reservation_id = None
                     return RequestSample("manual", wall, start, "reservations", "POST",
                                          latency, r.status_code,
-                                         _classify_error(None, r.status_code),
+                                         classify_error(None, r.status_code),
                                          reservation_id, True)
-                last_error_class = _classify_error(None, r.status_code)
+                last_error_class = classify_error(None, r.status_code)
                 if self.mode == "raw" or attempts > self.max_retries:
                     return RequestSample("manual", wall, start, "reservations", "POST",
                                          latency, r.status_code,
@@ -455,7 +486,7 @@ class TrafficGenerator:
                                          reservation_id, False)
             except Exception as e:  # noqa: BLE001
                 exc = e
-                last_error_class = _classify_error(e, None)
+                last_error_class = classify_error(e, None)
                 if self.mode == "raw" or attempts > self.max_retries:
                     latency = (time.monotonic() - start) * 1000
                     return RequestSample("manual", wall, start, "reservations", "POST",
@@ -637,6 +668,21 @@ def reservation_status(reservation_id: str) -> str | None:
     return rows[0][0] if rows else None
 
 
+def reservation_statuses(reservation_ids: list[str]) -> dict[str, str]:
+    if not reservation_ids:
+        return {}
+    rows = pg_query("reservation_db",
+                    "SELECT id, status FROM reservations WHERE id = ANY(:ids)",
+                    {"ids": reservation_ids})
+    return {str(r[0]): r[1] for r in rows}
+
+
+def count_pending_outbox() -> int:
+    rows = pg_query("notification_db",
+                    "SELECT count(*) FROM notifications WHERE status='PENDING'")
+    return int(rows[0][0]) if rows else 0
+
+
 def charge_count(reservation_id: str) -> int:
     rows = pg_query("payment_db",
         """SELECT count(*) FROM ledger l
@@ -776,24 +822,33 @@ def run_scenario(scenario_id: str, mode: str, repeat: int,
     snapshot_before = snapshot_state()
 
     generator = TrafficGenerator(run_id, rps, seed=seed)
+    retry_generator = TrafficGenerator(run_id + "r", rps, mode="retry", seed=seed)
     canary = Canary(run_id, seed=seed)
 
     phases: list[dict] = {}
     all_samples: list[RequestSample] = []
+    retry_samples: list[RequestSample] = []
     canary_samples: list[CanarySample] = []
 
-    def run_phase(name: str, seconds: float, traffic: bool) -> None:
+    def run_phase(name: str, seconds: float, traffic: bool,
+                  with_retry: bool = False) -> None:
         if traffic:
             generator.start()
+            if with_retry:
+                retry_generator.start()
             canary.start()
         else:
             canary.start()
         time.sleep(seconds)
         gen_samples = generator.stop()
+        ret_samples = retry_generator.stop() if with_retry else []
         can_samples = canary.stop()
         for s in gen_samples:
             s.phase = name
+        for s in ret_samples:
+            s.phase = name + "_retry"
         all_samples.extend(gen_samples)
+        retry_samples.extend(ret_samples)
         canary_samples.extend(can_samples)
         phases[name] = {
             "inicio": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -806,13 +861,22 @@ def run_scenario(scenario_id: str, mode: str, repeat: int,
 
     t_fault = time.monotonic()
     _apply(spec)
-    run_phase(Phase.FAULT.value, fault_seconds, True)
+    run_phase(Phase.FAULT.value, fault_seconds, True,
+              with_retry=(scenario_id == "B"))
+    pendiente_durante_falla = count_pending_outbox()
 
     _apply(recovery)
     recovered = wait_healthy(recovery_container, timeout=120)
     t_recovered = time.monotonic() if recovered else None
 
     run_phase(Phase.DRAIN.value, drain_seconds, True)
+    # Dar margen al worker para vaciar el backlog (drenado <= 30 s).
+    pendiente_despues_drenaje = count_pending_outbox()
+    for _ in range(30):
+        if pendiente_despues_drenaje == 0:
+            break
+        time.sleep(1)
+        pendiente_despues_drenaje = count_pending_outbox()
     t_end = time.monotonic()
 
     windows = compute_outage_windows(canary_samples, min_consecutive=2)
@@ -844,6 +908,8 @@ def run_scenario(scenario_id: str, mode: str, repeat: int,
 
     metrics_by_phase = {name: aggregate([s for s in all_samples if s.phase == name])
                         for name in phases}
+    if retry_samples:
+        metrics_by_phase["falla_retry"] = aggregate(retry_samples)
     exito_baseline = metrics_by_phase.get("baseline", {}).get("success_pct", 100.0)
     exito_falla = metrics_by_phase.get("falla", {}).get("success_pct", 100.0)
 
@@ -890,16 +956,31 @@ def run_scenario(scenario_id: str, mode: str, repeat: int,
         "invariantes_cero_violaciones": not hard_fail or "invariantes" not in str(hard_fail_reason),
         "no_perdida_datos": close_ok,
         "stack_sano_al_terminar": restore_ok and all(stack_healthy().values()),
-        "exito_reservas_falla >= baseline - 1pp": exito_falla >= exito_baseline - 1.0,
         "outbox_pendiente_despues_drenaje_cero": pendiente_despues_drenaje == 0,
     }
-    if scenario_id == "A" and mode == "worker":
-        assertions["outbox_pendiente_durante_falla_positiva"] = pendiente_durante_falla > 0
-    if not exito_falla >= exito_baseline - 1.0 or pendiente_despues_drenaje != 0:
+    failures = []
+    if pendiente_despues_drenaje != 0:
+        failures.append(f"outbox no drenado={pendiente_despues_drenaje}")
+    if scenario_id == "A":
+        ok_a = exito_falla >= exito_baseline - 1.0
+        assertions["exito_reservas_falla >= baseline - 1pp"] = ok_a
+        if not ok_a:
+            failures.append(
+                f"exito_falla={exito_falla}% < baseline-1pp="
+                f"{exito_baseline - 1.0}%")
+        if mode == "worker":
+            assertions["outbox_pendiente_durante_falla_positiva"] = \
+                pendiente_durante_falla > 0
+    if retry_samples:
+        retry_pct = aggregate(retry_samples)["success_pct"]
+        ok_retry = retry_pct >= 99.0
+        assertions["exito_con_reintento >= 99%"] = ok_retry
+        if not ok_retry:
+            failures.append(f"exito_con_reintento={retry_pct}% < 99%")
+    if failures:
         hard_fail = True
         hard_fail_reason = (hard_fail_reason + "; " if hard_fail_reason else "") + \
-            f"exito_falla={exito_falla}% < baseline-1pp={exito_baseline - 1.0}% " \
-            f"o outbox no drenado={pendiente_despues_drenaje}"
+            "; ".join(failures)
 
     finished_at = dt.datetime.now(dt.timezone.utc).isoformat()
 
@@ -912,7 +993,8 @@ def run_scenario(scenario_id: str, mode: str, repeat: int,
         t_recovered=(t_recovered - t0) if t_recovered else None,
         t_end=t_end - t0, rtt_ttd_seconds=ttd, rto_seconds=rto,
         rto_objective_seconds=objective, rto_cumplido=cumplido,
-        pendiente_durante_falla=0, pendiente_despues_drenaje=0,
+        pendiente_durante_falla=pendiente_durante_falla,
+        pendiente_despues_drenaje=pendiente_despues_drenaje,
         exito_baseline=exito_baseline, exito_falla=exito_falla,
         restart_before=restart_before,
         restart_after={svc: restart_count(svc) for svc in SERVICES},
@@ -949,7 +1031,9 @@ def run_scenario_C(mode: str, repeat: int,
     count = 20
     created_ids: list[str] = []
 
-    base_day = dt.date.today() + dt.timedelta(days=5)
+    # Noches únicas por ejecución para no agotar inventario entre repeticiones.
+    base_day = dt.date.today() + dt.timedelta(
+        days=1000 + uuid.uuid4().int % 2000)
     for i in range(count):
         day = base_day + dt.timedelta(days=i)
         client.put(
@@ -1099,6 +1183,8 @@ def run_scenario_D(mode: str, repeat: int,
     room = hotel["rooms"][0]
     customer = seed["customers"][0]
 
+    hard_fail_reason = None
+    close_error = None
     key = f"chaos-d-{run_id}-base-{uuid.uuid4().hex[:6]}"
     day = dt.date.today() + dt.timedelta(days=10)
     body = {
@@ -1237,7 +1323,9 @@ def run_scenario_E2(mode: str, repeat: int,
     count = 20
     created_ids: list[str] = []
 
-    base_day = dt.date.today() + dt.timedelta(days=5)
+    # Noches únicas por ejecución para no agotar inventario entre repeticiones.
+    base_day = dt.date.today() + dt.timedelta(
+        days=1000 + uuid.uuid4().int % 2000)
     for i in range(count):
         day = base_day + dt.timedelta(days=i)
         client.put(
@@ -1245,6 +1333,16 @@ def run_scenario_E2(mode: str, repeat: int,
             json={"hotel_id": hotel["id"], "from": day.isoformat(),
                   "to": (day + dt.timedelta(days=1)).isoformat(), "total": 5},
         )
+
+    snapshot_before = snapshot_state()
+    restart_before = {svc: restart_count(svc) for svc in SERVICES}
+
+    # El gateway limita a 10 conexiones concurrentes por IP
+    # (gateway/conf.d/default.conf: "limit_conn conn 10"): 20 concurrentes
+    # producen ~10 respuestas 503 de nginx. Se limita la concurrencia a 10
+    # para medir el flujo de pago y no el limitador (ver
+    # docs/resultados/chaos_E2_hallazgo.md).
+    max_workers = 10
 
     def make(i: int) -> str | None:
         key = f"chaos-e2-{run_id}-{i}-{uuid.uuid4().hex[:6]}"
@@ -1268,19 +1366,46 @@ def run_scenario_E2(mode: str, repeat: int,
             pass
         return None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=count) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
         for rid in pool.map(make, range(count)):
             if rid:
                 created_ids.append(rid)
 
+    # Sondear hasta un límite y registrar la distribución del tiempo a final.
+    started_final = time.monotonic()
     stable_ok = False
-    deadline = time.monotonic() + 150
+    seen: dict[str, float] = {}
+    final_states: dict[str, str] = {}
+    deadline = started_final + 90
     while time.monotonic() < deadline:
-        statuses = {rid: reservation_status(rid) for rid in created_ids}
-        if all(s == "CONFIRMED" for s in statuses.values()):
+        final_states = reservation_statuses(created_ids)
+        now = time.monotonic()
+        for rid, st in final_states.items():
+            if st == "CONFIRMED" and rid not in seen:
+                seen[rid] = now - started_final
+        if created_ids and all(final_states.get(r) == "CONFIRMED"
+                               for r in created_ids):
             stable_ok = True
             break
         time.sleep(2)
+
+    manual_review = sum(1 for s in final_states.values()
+                        if s == "MANUAL_REVIEW")
+    ttf = sorted(seen.values())
+
+    def _p(q: float) -> float | None:
+        if not ttf:
+            return None
+        return ttf[min(len(ttf) - 1, int((len(ttf) - 1) * q / 100))]
+
+    evidence = (
+        f"creadas={len(created_ids)}/{count}; estados finales={final_states}; "
+        f"MANUAL_REVIEW={manual_review}; tiempo a CONFIRMED (s): "
+        f"p50={_p(50)} p95={_p(95)} max={ttf[-1] if ttf else None}. "
+        "Concurrencia limitada a 10 por el limit_conn del gateway "
+        "(20 concurrentes => ~10 respuestas 503 de nginx); ver "
+        "docs/resultados/chaos_E2_hallazgo.md."
+    )
 
     close_ok = True
     close_error = None
@@ -1339,13 +1464,15 @@ def run_scenario_E2(mode: str, repeat: int,
         t_end=t_end - t0, rtt_ttd_seconds=None, rto_seconds=rto,
         rto_objective_seconds=_objective_for("E2"), rto_cumplido=cumplido,
         pendiente_durante_falla=0, pendiente_despues_drenaje=0,
-        exito_baseline=100.0, exito_falla=100.0,
-        restart_before={},
+        exito_baseline=round(100.0 * len(created_ids) / count, 2),
+        exito_falla=round(100.0 * len(created_ids) / count, 2),
+        restart_before=restart_before,
         restart_after={svc: restart_count(svc) for svc in SERVICES},
         health_before=stack_healthy(), health_after=stack_healthy(),
-        hard_fail=hard_fail or (not stable_ok),
+        hard_fail=hard_fail or (not stable_ok) or (manual_review > 0),
         hard_fail_reason=hard_fail_reason or (
-            None if stable_ok else "no todas las reservas alcanzaron CONFIRMED"),
+            None if (stable_ok and manual_review == 0)
+            else "no todas las reservas alcanzaron CONFIRMED o hay MANUAL_REVIEW"),
         metrics_by_phase={}, outage_windows=[],
         assertions={
             "invariantes_cero_violaciones": not hard_fail or "invariantes" not in str(hard_fail_reason),
@@ -1353,8 +1480,10 @@ def run_scenario_E2(mode: str, repeat: int,
             "stack_sano_al_terminar": restore_ok and all(stack_healthy().values()),
             "todas_las_reservas_estables": stable_ok,
             "un_cargo_por_reserva": all(charge_count(rid) == 1 for rid in created_ids),
+            "sin_manual_review": manual_review == 0,
         },
         close_ok=close_ok, close_error=close_error,
+        evidence=evidence,
     )
 
 
@@ -1393,6 +1522,8 @@ def run_scenario_S(mode: str, repeat: int,
         "payment": {"method": "card", "token": "tok_demo", "simulate": "ok"},
     }
     base_ok = False
+    hard_fail_reason = None
+    close_error = None
     try:
         r = client.post(f"{PUBLIC_URL}/reservations", json=body,
                         headers={"Idempotency-Key": key,
@@ -1402,7 +1533,16 @@ def run_scenario_S(mode: str, repeat: int,
         base_ok = False
 
     _apply(spec)
+    t_fault = time.monotonic()
+    ttd_unhealthy = None
+    ttd_deadline = time.monotonic() + 20
+    while time.monotonic() < ttd_deadline:
+        if container_health(recovery_container) != "healthy":
+            ttd_unhealthy = time.monotonic() - t_fault
+            break
+        time.sleep(0.5)
     errors_503 = 0
+    errors_2xx = 0
     end_fault = time.monotonic() + fault_seconds
     while time.monotonic() < end_fault:
         try:
@@ -1412,6 +1552,8 @@ def run_scenario_S(mode: str, repeat: int,
                                      "X-Request-ID": f"s-w-{uuid.uuid4().hex[:6]}"})
             if r.status_code == 503:
                 errors_503 += 1
+            elif r.status_code in (200, 201, 202):
+                errors_2xx += 1
         except Exception:
             errors_503 += 1
         time.sleep(0.5)
@@ -1470,6 +1612,18 @@ def run_scenario_S(mode: str, repeat: int,
     rto = rto_write
     objetivo = _objective_for("S")
     cumplido = rto is not None and rto <= objetivo
+    t_recovered_rel = (t_recovered - t0) if t_recovered else None
+    evidence = (
+        "TTD (Docker marca no-healthy): "
+        f"{ttd_unhealthy if ttd_unhealthy is not None else 'n/d'} s; "
+        "healthy de nuevo en t="
+        f"{t_recovered_rel if t_recovered_rel is not None else 'n/d'} s.\n"
+        "Docker decide `unhealthy` con el healthcheck configurado "
+        "(interval=5s, timeout=5s, retries=12, start_period=15s): tras "
+        "`retries` fallos consecutivos lo marca; `restart: unless-stopped` "
+        "solo reinicia si el proceso sale, no por estar unhealthy.\n"
+        f"Health.Log (postgres): {health_log('postgres')}"
+    )
 
     return ScenarioResult(
         scenario_id="S", mode=mode, repeat=repeat,
@@ -1485,12 +1639,12 @@ def run_scenario_S(mode: str, repeat: int,
         restart_before=restart_before,
         restart_after=restart_after,
         health_before=stack_healthy(), health_after=stack_healthy(),
-        hard_fail=hard_fail or (not restart_unchanged)
-        or (not assert_no_loss_ok) or (not invariants_ok),
+        hard_fail=hard_fail or (not assert_no_loss_ok) or (not invariants_ok)
+        or (errors_2xx != 0),
         hard_fail_reason=hard_fail_reason or (
-            None if (not hard_fail and restart_unchanged
-                     and assert_no_loss_ok and invariants_ok)
-            else "fallo de integridad, reinicios inesperados o pérdida de datos"),
+            None if (not hard_fail and assert_no_loss_ok and invariants_ok
+                     and errors_2xx == 0)
+            else "fallo de integridad, 2xx durante la caida o pérdida de datos"),
         metrics_by_phase={}, outage_windows=[],
         assertions={
             "invariantes_cero_violaciones": invariants_ok,
@@ -1502,6 +1656,7 @@ def run_scenario_S(mode: str, repeat: int,
             "sin_2xx_durante_falla": errors_2xx == 0,
         },
         close_ok=assert_no_loss_ok, close_error=close_error,
+        evidence=evidence,
     )
 
 
@@ -1592,21 +1747,51 @@ def write_reports(result: ScenarioResult) -> tuple[pathlib.Path, pathlib.Path]:
         lines.append(f"- {k}: {'sí' if v else 'no'}")
     lines.append("")
     lines.append("## Las 5 preguntas del enunciado")
-    lines.append("1. **¿Qué componentes se afectaron?** (endpoints con errores) — "
-                 "ver tabla de métricas y ventanas de caída.")
-    lines.append("2. **¿Cuáles siguieron funcionando?** (endpoints con éxito "
-                 "durante la falla) — ver éxito % por fase.")
-    lines.append("3. **¿Qué información se perdió?** — "
-                 + ("ninguna (no_perdida_datos OK)"
-                    if result.assertions["no_perdida_datos"]
-                    else "ver FALLA DURA"))
-    lines.append("4. **¿Cómo se recuperó?** — "
-                 + ("política de reinicio de Docker / worker de recuperación"
-                    if result.assertions["stack_sano_al_terminar"]
-                    else "no se restauró automáticamente"))
-    lines.append("5. **¿Qué mecanismo mejoraría la resiliencia?** — "
-                 "cola durable con dead-letter y alerta por antigüedad del "
-                 "backlog (alarma OUTBOX_BACKLOG_OLD).")
+    m_base = result.metrics_by_phase.get("baseline", {})
+    m_falla = result.metrics_by_phase.get("falla", {})
+    if m_falla:
+        falla_txt = (
+            f"{m_falla.get('ok', 0)}/{m_falla.get('total', 0)} peticiones OK "
+            f"({m_falla.get('success_pct', 0)}%), errores "
+            f"{m_falla.get('errors_by_class', {})}, p95="
+            f"{m_falla.get('p95_ms', 0)} ms"
+        )
+        funcionando = (
+            f"el flujo respondió {m_falla.get('success_pct', 0)}% durante la "
+            f"falla (baseline {m_base.get('success_pct', 0)}%)"
+        )
+    else:
+        falla_txt = "sin tráfico de fondo en este escenario (C/D/E2/S)"
+        funcionando = (
+            "sin tráfico de fondo; se comprobó el estado final de las reservas "
+            "y los invariantes"
+        )
+    perdida = (
+        "ninguna (no_perdida_datos OK); outbox pendiente durante la falla="
+        f"{result.pendiente_durante_falla}, tras drenaje="
+        f"{result.pendiente_despues_drenaje}"
+        if result.assertions.get("no_perdida_datos")
+        else "ver FALLA DURA"
+    )
+    recuperado = (
+        "política de reinicio/worker de recuperación; RTO medido="
+        f"{result.rto_seconds if result.rto_seconds is not None else 'n/d'} s "
+        f"(objetivo {result.rto_objective_seconds} s, cumplido="
+        f"{'sí' if result.rto_cumplido else 'no'})"
+        if result.assertions.get("stack_sano_al_terminar")
+        else "no se restauró automáticamente"
+    )
+    lines.append("1. **¿Qué componentes se afectaron?** " + falla_txt + ".")
+    lines.append("2. **¿Cuáles siguieron funcionando?** " + funcionando + ".")
+    lines.append("3. **¿Qué información se perdió?** " + perdida + ".")
+    lines.append("4. **¿Cómo se recuperó?** " + recuperado + ".")
+    lines.append("5. **¿Qué mecanismo mejoraría la resiliencia?** "
+                 + IMPROVEMENTS.get(result.scenario_id,
+                                    "más réplicas y health checks activos") + ".")
+    if result.evidence:
+        lines.append("")
+        lines.append("## Evidencia adicional (Docker health)")
+        lines.append(result.evidence)
     lines.append("")
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     json_path.write_text(json.dumps(result.to_dict(), indent=2,

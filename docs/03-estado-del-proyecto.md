@@ -10,7 +10,7 @@
 | F1 Flujo crítico | ✔ | availability, payment, reservation, customer, hotel, chequeador de invariantes, e2e. Tag `f1` |
 | F2 Integración | ✔ consolidada | notification + outbox/relay, gateway, availability x3. G1 formal: ver `fases/F2-integracion.md` |
 | F3 Frontend mínimo | **Siguiente** | `fases/F3-frontend.md` (+ spec detallada en `prompts/F3-frontend.md`) |
-| F4 Fallos, carga y reportes | Pendiente | `fases/F4-fallos-carga-reportes.md` |
+| F4 Fallos, carga y reportes | **En curso** | F4a (caos A–D, E2, S): `fases/F4-fallos-carga-reportes.md`, `docs/fallos.md`, `docs/resultados/chaos_*.md` |
 | F5 Entrega (informe, manual, costos) | Pendiente (la documentación corre en paralelo) | `fases/F5-entrega.md` |
 | F6 Defensa (28–30 oct, por confirmar) | Pendiente | `fases/F6-defensa.md` |
 
@@ -21,7 +21,7 @@
 - Hexagonal ligera en availability, reservation, payment, notification; CRUD modular en customer/hotel (`04-arquitectura.md`, ADR-0001).
 - Saga con `advance(reservation_id)`; estado persistido antes de cada llamada; clave de pago = `reservation_id` (ADR-0003).
 - Fail-closed en escritura de inventario; fail-open en notificaciones (outbox → relay → inbox idempotente).
-- Comandos: `make up|down|clean|clean-all|seed|test|e2e|smoke|invariants|lint`; F4 añade `chaos|perf|report|backup|restore`.
+- Comandos: `make up|down|clean|clean-all|seed|test|e2e|smoke|invariants|lint|build|images|prune`; F4a añade `make chaos [SCEN=A|B|C|D|E2|S] [REPEAT=n]` (no forma parte de `make test` ni del CI por defecto).
 
 ## 3. Invariantes (el contrato de pruebas)
 I1 sin sobreventa · I2 una reserva por intención y cadena de estados legal · I3 un cobro por reserva · I4 CONFIRMED ⇔ pago y hold confirmados · I5 todo estado no estable avanza o expira · I6 CONFIRMED ⇒ exactamente un evento (entregado o pendiente) · I7 lo comprometido sobrevive a reinicios. Chequeador: `make invariants`.

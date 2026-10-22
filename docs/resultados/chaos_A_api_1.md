@@ -9,27 +9,27 @@
 - fault_s: 20
 - drain_s: 20
 - semilla: `D:\github\tlhotel\reservas-platform\secrets\seed.json`
-- iniciado: 2026-10-21T07:28:00.350193+00:00
-- finalizado: 2026-10-21T07:29:25.429645+00:00
+- iniciado: 2026-10-22T02:30:26.719664+00:00
+- finalizado: 2026-10-22T02:31:48.666729+00:00
 
 ## Línea de tiempo (segundos desde arranque)
 - baseline: 0 → 15.0
-- falla: 15.3 → 35.3
-- recuperación: healthy en t=44.2
-- fin: 64.3
+- falla: 15.4 → 35.4
+- recuperación: healthy en t=43.6
+- fin: 63.7
 
 ## Métricas por fase (peticiones de fondo)
 | fase | peticiones | éxito % | errores por clase | p50_ms | p95_ms | p99_ms |
 |---|---|---|---|---|---|---|
-| baseline | 23 | 100.0 | — | 9.7 | 187.4 | 196.2 |
-| falla | 30 | 100.0 | — | 8.5 | 203.8 | 210.0 |
-| drenaje | 30 | 100.0 | — | 10.0 | 193.6 | 197.3 |
+| baseline | 23 | 100.0 | — | 8.1 | 184.3 | 204.8 |
+| falla | 30 | 100.0 | — | 7.8 | 181.0 | 191.8 |
+| drenaje | 30 | 100.0 | — | 7.6 | 38.2 | 133.9 |
 
 ## Ventanas de indisponibilidad (canario)
 (ninguna ventana detectada)
 
 - TTD: no detectado
-- RTO medido: 0.71 s
+- RTO medido: 0.64 s
 - RTO objetivo: 300 s
 - RTO cumplido: **sí**
 
@@ -38,17 +38,12 @@
 |---|---|---|
 | customer | 0 | 0 |
 | hotel | 0 | 0 |
-| availability | 1 | 1 |
+| availability | 0 | 0 |
 | payment | 0 | 0 |
 | reservation | 0 | 0 |
 | notification | 0 | 0 |
-| postgres | 1 | 1 |
+| postgres | 0 | 0 |
 | gateway | 0 | 0 |
-
-## Aserciones duras
-- invariantes con 0 violaciones: True
-- no pérdida de datos: True
-- stack sano al terminar: True
 
 ## Medidas del escenario
 - éxito reservas en baseline: 100.0%
@@ -58,13 +53,13 @@
 - invariantes_cero_violaciones: sí
 - no_perdida_datos: sí
 - stack_sano_al_terminar: sí
-- exito_reservas_falla >= baseline - 1pp: sí
 - outbox_pendiente_despues_drenaje_cero: sí
+- exito_reservas_falla >= baseline - 1pp: sí
 
 ## Las 5 preguntas del enunciado
-1. **¿Qué componentes se afectaron?** (endpoints con errores) — ver tabla de métricas y ventanas de caída.
-2. **¿Cuáles siguieron funcionando?** (endpoints con éxito durante la falla) — ver éxito % por fase.
-3. **¿Qué información se perdió?** — ninguna (no_perdida_datos OK)
-4. **¿Cómo se recuperó?** — politica de reinicio de Docker / worker de recuperación
-5. **¿Qué mecanismo mejoraría la resiliencia?** — cola durable con dead-letter y alerta por antigüedad del backlog (alarma OUTBOX_BACKLOG_OLD).
+1. **¿Qué componentes se afectaron?** 30/30 peticiones OK (100.0%), errores {}, p95=181.0 ms.
+2. **¿Cuáles siguieron funcionando?** el flujo respondió 100.0% durante la falla (baseline 100.0%).
+3. **¿Qué información se perdió?** ninguna (no_perdida_datos OK); outbox pendiente durante la falla=0, tras drenaje=0.
+4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=0.6384924000012688 s (objetivo 300 s, cumplido=sí).
+5. **¿Qué mecanismo mejoraría la resiliencia?** dead-letter y alerta de antigüedad del backlog.
 
