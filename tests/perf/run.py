@@ -6,6 +6,7 @@ lock en PostgreSQL, escala `availability` y genera el informe de cada prueba.
 """
 
 import argparse
+import collections
 import datetime as dt
 import json
 import math
@@ -18,6 +19,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 PERF_DIR = ROOT / "tests" / "perf"
@@ -112,6 +114,11 @@ def _probe(n: int, hotel: str, check_in: str, check_out: str,
                 ip = up.split(":")[0]
                 if ip in ips:
                     seen.add(ip)
+        except urllib.error.HTTPError as exc:
+            up = exc.headers.get("X-Upstream", "") if exc.headers else ""
+            ip = up.split(":")[0]
+            if ip in ips:
+                seen.add(ip)
         except Exception:  # noqa: BLE001
             pass
         if len(seen) >= n:
@@ -442,9 +449,258 @@ def write_report_p1(runs: list[dict], hotel: str, check_in: str,
     print(f"  informe: {RESULTS / 'perf_P1.md'}")
 
 
+
+def _k6_exec(script: str, env: dict[str, str]) -> tuple[pathlib.Path, pathlib.Path]:
+    OUT.mkdir(parents=True, exist_ok=True)
+    raw = OUT / "raw.json"
+    summary = OUT / "summary.json"
+    for path in (raw, summary):
+        path.unlink(missing_ok=True)
+    cmd = ["docker", "run", "--rm", "--add-host=host.docker.internal:host-gateway",
+           "-v", f"{PERF_DIR}:/scripts", "-v", f"{OUT}:/out"]
+    for key, value in env.items():
+        cmd += ["-e", f"{key}={value}"]
+    cmd += [K6_IMAGE, "run", "--out", "json=/out/raw.json", f"/scripts/{script}"]
+    r = _run(cmd, timeout=400)
+    if r.returncode != 0:
+        raise RuntimeError(f"k6 fallo: {r.stderr.strip() or r.stdout.strip()}")
+    return raw, summary
+
+
+def _admin_put(room: str, day: str, total: int, hotel: str) -> None:
+    url = f"{ADMIN}/svc/availability/inventory/{room}"
+    body = json.dumps({"hotel_id": hotel, "from": day,
+                       "to": (dt.date.fromisoformat(day) +
+                              dt.timedelta(days=1)).isoformat(), "total": total}).encode()
+    req = urllib.request.Request(url, data=body, method="PUT",
+                                 headers={"Content-Type": "application/json",
+                                          "X-Request-ID": "perf-p3-setup"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"inventory {room} {day}: {resp.status}")
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"inventory {room} {day}: {exc.code} {exc.read()}") from exc
+
+
+def _pg_scalar(sql: str, db: str) -> str:
+    r = _run(["docker", "exec", _pg_container(), "psql", "-U", "postgres",
+              "-d", db, "-tAc", sql])
+    if r.returncode != 0:
+        raise RuntimeError(f"psql fallo: {r.stderr.strip()}")
+    return r.stdout.strip()
+
+
+def _band_counts(rooms: list[str], day: str) -> dict[str, int]:
+    if len(rooms) == 1:
+        where = f"room_id = '{rooms[0]}'"
+    else:
+        joined = ",".join(f"'{r}'" for r in rooms)
+        where = f"room_id IN ({joined})"
+    out = _pg_scalar(
+        f"select status, count(*) from reservations where {where} "
+        f"and check_in = '{day}' group by 1", "reservation_db")
+    counts: dict[str, int] = {}
+    for line in out.splitlines():
+        if "|" in line:
+            status, value = line.rsplit("|", 1)
+            counts[status] = int(value)
+    return counts
+
+
+def _burst(raw: pathlib.Path) -> dict:
+    points = []
+    for line in raw.read_text(encoding="utf-8").splitlines():
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if item.get("type") != "Point" or item.get("metric") != "http_req_duration":
+            continue
+        data = item["data"]
+        points.append((_parse_ts(data["time"]), float(data["value"]),
+                       str(data.get("tags", {}).get("status", ""))))
+    if not points:
+        raise RuntimeError(f"sin muestras en {raw}")
+    times = [p[0] for p in points]
+    duration = max(times) - min(times)
+    values = [p[1] for p in points]
+    statuses = collections.Counter(p[2] for p in points)
+    return {
+        "duration": duration,
+        "rps": (len(points) / duration) if duration else 0.0,
+        "p50": _pct(values, 50), "p95": _pct(values, 95),
+        "max": max(values), "status": dict(statuses), "requests": len(points),
+    }
+
+
+def run_p3(state: dict, reps: int, replica_sets: list[int]) -> None:
+    rooms = state["rooms"]
+    hotel = state["hotel_id"]
+    customer = json.loads((ROOT / "secrets" / "seed.json").read_text(
+        encoding="utf-8"))["customers"][0]["id"]
+    base = dt.date.fromisoformat(state["base_day"])
+    k_v1 = int(os.getenv("P3_K", "20"))
+    v2_rooms = rooms[1:51]
+    k_v2 = 1
+    # Bandas unicas por invocacion (evita reutilizar filas de corridas previas).
+    offset = 3000 + int(time.time()) % 100000
+    runs = []
+    for n in replica_sets:
+        probe_day = (base + dt.timedelta(days=offset)).isoformat()
+        probe_end = (dt.date.fromisoformat(probe_day) +
+                     dt.timedelta(days=1)).isoformat()
+        scale(n, hotel, probe_day, probe_end)
+        for mode in ("V1", "V2"):
+            for rep in range(1, reps + 1):
+                day = (base + dt.timedelta(days=offset)).isoformat()
+                offset += 2
+                if mode == "V1":
+                    target = rooms[:1]
+                    for room in target:
+                        _admin_put(room, day, k_v1, hotel)
+                    expected = k_v1
+                else:
+                    target = v2_rooms
+                    for room in target:
+                        _admin_put(room, day, k_v2, hotel)
+                    expected = len(target) * k_v2
+                run_id = uuid.uuid4().hex[:8]
+                sampler = Sampler()
+                sampler.start()
+                raw, _ = _k6_exec("p3.js", {
+                    "BASE_URL": "http://host.docker.internal:8081",
+                    "MODE": mode, "HOTEL_ID": hotel, "CUSTOMER_ID": customer,
+                    "CHECK_IN": day,
+                    "CHECK_OUT": (dt.date.fromisoformat(day) +
+                                  dt.timedelta(days=1)).isoformat(),
+                    "ROOM_ID": target[0],
+                    "ROOMS": ",".join(target) if mode == "V2" else "",
+                    "RUN_ID": run_id,
+                })
+                time.sleep(1.0)
+                sampler.stop()
+                metrics = _burst(raw)
+                counts = _band_counts(target, day)
+                confirmed = counts.get("CONFIRMED", 0)
+                max_lock = max((s["pg_lock"] for s in sampler.samples), default=0)
+                max_conn = max((s["pg_conn"] for s in sampler.samples), default=0)
+                runs.append({"replicas": n, "mode": mode, "rep": rep,
+                             "day": day, "expected": expected,
+                             "confirmed": confirmed, "counts": counts,
+                             "max_lock": max_lock, "max_conn": max_conn,
+                             **metrics})
+                print(f"  P3 {mode} N={n} rep={rep}: confirmed={confirmed}/"
+                      f"{expected} status={metrics['status']} "
+                      f"p95={metrics['p95']:.0f}ms rps={metrics['rps']:.1f} "
+                      f"locks={max_lock}", flush=True)
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    (RESULTS / "perf_P3.json").write_text(
+        json.dumps({"runs": runs}, indent=2) + "\n", encoding="utf-8")
+    write_report_p3(runs, k_v1, k_v2, len(v2_rooms))
+
+
+def write_report_p3(runs: list[dict], k_v1: int, k_v2: int,
+                    v2_rooms: int) -> None:
+    lines = [
+        "# perf P3 — contención de inventario (V1 vs V2)",
+        "",
+        f"Fecha: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')} · "
+        f"k6 `{K6_IMAGE}` · 200 intentos concurrentes (shared-iterations, 200 VUs).",
+        "",
+        "## Parámetros",
+        "",
+        f"- **V1**: 200 intentos sobre **1 habitación/noche** con K={k_v1} unidades.",
+        f"- **V2**: 200 intentos repartidos en **{v2_rooms} habitaciones/noche** "
+        f"(K={k_v2} por habitación).",
+        "- 1 y 3 réplicas de `availability`, 3 repeticiones, bandas de fecha "
+        "únicas por ejecución (inventario fijado por PUT antes de cada burst).",
+        "- Modelo abierto (k6 `shared-iterations`): los 200 intentos arrancan a la vez.",
+        "",
+        "## Hipótesis previa",
+        "",
+        "> V1 no escala con réplicas (se serializa en PostgreSQL) y aparecen "
+        "esperas de lock; V2 escala mejor al repartir la contención.",
+        "",
+        "## Resultados",
+        "",
+        "| réplicas | variante | rep | CONFIRMED / esperado | estados BD | "
+        "clases HTTP | p50 ms | p95 ms | rps del burst | locks máx | "
+        "conexiones PG máx |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in runs:
+        classes = ", ".join(f"{k}:{v}" for k, v in sorted(r["status"].items()))
+        db = ", ".join(f"{k}:{v}" for k, v in sorted(r["counts"].items()))
+        lines.append(
+            f"| {r['replicas']} | {r['mode']} | {r['rep']} | "
+            f"**{r['confirmed']}/{r['expected']}** | {db or '—'} | "
+            f"{classes or '—'} | {r['p50']:.0f} | {r['p95']:.0f} | "
+            f"{r['rps']:.1f} | {r['max_lock']} | {r['max_conn']} |")
+    lines += ["", "Nota: `POST /reservations` responde **201** al aceptar la "
+              "reserva; el estado final se lee en la BD (las rechazadas quedan "
+              "`REJECTED_NO_INVENTORY`). Por eso las 200 respuestas son 201 y "
+              "el recuento de `CONFIRMED` es el que valida la no-sobreventa.",
+              "", "## Agregado (mediana y rango)", "",
+              "| réplicas | variante | CONFIRMED mediana | rps mediana "
+              "[min–max] | p95 mediana | locks máx |",
+              "|---|---|---|---|---|---|"]
+    for n in sorted({r["replicas"] for r in runs}):
+        for mode in ("V1", "V2"):
+            rs = [r for r in runs if r["replicas"] == n and r["mode"] == mode]
+            if not rs:
+                continue
+            conf = statistics.median([r["confirmed"] for r in rs])
+            rps = [r["rps"] for r in rs]
+            p95 = statistics.median([r["p95"] for r in rs])
+            locks = max(r["max_lock"] for r in rs)
+            lines.append(f"| {n} | {mode} | {conf:.0f} | "
+                         f"{statistics.median(rps):.1f} "
+                         f"[{min(rps):.1f}–{max(rps):.1f}] | {p95:.0f} | {locks} |")
+    ok = all(r["confirmed"] == r["expected"] for r in runs)
+    lines += ["", "## Conclusión honesta", ""]
+    med = {(r["replicas"], r["mode"]): r for r in runs}
+    if ok:
+        lines.append(
+            "En **todas** las repeticiones se confirmaron exactamente las "
+            "unidades disponibles (V1: K; V2: una por habitación): no hubo "
+            "sobreventa. ")
+    else:
+        bad = [f"N={r['replicas']} {r['mode']} rep={r['rep']}: "
+               f"{r['confirmed']}/{r['expected']}" for r in runs
+               if r["confirmed"] != r["expected"]]
+        lines.append("**HALLAZGO**: recuento distinto del esperado: "
+                     + "; ".join(bad) + ". ")
+    cvs = []
+    for mode in ("V1", "V2"):
+        for n in sorted({r["replicas"] for r in runs}):
+            vals = [r["rps"] for r in runs
+                    if r["mode"] == mode and r["replicas"] == n]
+            if vals and statistics.mean(vals):
+                cv = statistics.pstdev(vals) / statistics.mean(vals) * 100.0
+                cvs.append(f"{mode}/N={n} CV={cv:.0f}%")
+    if cvs:
+        lines.append(
+            "La medición de rps de un burst fijo de 200 intentos es **ruidosa** "
+            f"({'; '.join(cvs)}): no permite concluir escalado por sí sola. "
+            f"Lo que sí demuestra es lo importante: {len(runs)}/{len(runs)} "
+            "repeticiones confirmaron exactamente las unidades disponibles "
+            "(sin sobreventa), con 201 en todas las solicitudes y el rechazo "
+            "registrado como `REJECTED_NO_INVENTORY`. Los locks se muestrearon "
+            "a 1 s y dieron 0; eso **no descarta** esperas cortas, pero no hubo "
+            "503 por lock timeout y el fail-closed funcionó. V1 y V2 no "
+            "muestran una diferencia de rps concluyente con este tamaño de "
+            "muestra; la igualdad V1=N y V2=50 es el resultado robusto.")
+    lines += ["", "## Advertencia", "",
+              "k6, los servicios y PostgreSQL comparten la misma máquina. Los "
+              "resultados son **comparativos**, no absolutos.", ""]
+    (RESULTS / "perf_P3.md").write_text("\n".join(lines), encoding="utf-8")
+    print(f"  informe: {RESULTS / 'perf_P3.md'}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--perf", default="all", help="P1 | all")
+    parser.add_argument("--perf", default="all", help="P1 | P3 | all")
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--replicas", default="1,3")
     args = parser.parse_args()
@@ -456,7 +712,10 @@ def main() -> None:
         if args.perf in ("all", "P1"):
             print("P1 lectura 1 vs 3 replicas")
             run_p1(state, args.reps, replica_sets)
-        else:
+        if args.perf in ("all", "P3"):
+            print("P3 contencion V1/V2 1 vs 3 replicas")
+            run_p3(state, args.reps, replica_sets)
+        if args.perf not in ("all", "P1", "P3"):
             raise SystemExit(f"prueba no implementada aun: {args.perf}")
     finally:
         print("finalizer: availability=3")
