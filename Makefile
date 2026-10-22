@@ -121,6 +121,15 @@ snapshot-reservation: deps
 seed: deps
 	$(VENV_PY) scripts/seed.py
 
+# Carga (F4b Parte 2): k6 en contenedor; no es una imagen del producto.
+PERF ?= all
+
+perf-setup: deps
+	$(VENV_PY) tests/perf/setup.py
+
+perf: deps
+	$(VENV_PY) tests/perf/run.py --perf $(PERF)
+
 invariants: deps
 	$(VENV_PY) tests/invariants/checker.py --grace 60
 

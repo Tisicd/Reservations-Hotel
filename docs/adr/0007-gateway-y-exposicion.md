@@ -14,5 +14,5 @@
 
 ## Actualización F4b (2026-10-22)
 - Los límites del gateway responden **429** (`limit_req_status 429`, `limit_conn_status 429`), no 503. Así un 429 (`límite del gateway`) es distinguible de un 503 (`fail-closed` de un servicio) y de un 502/504 (`upstream`). Los 429 **no** cuentan como impacto de una falla.
-- El listener administrativo `:8081` sirve `/svc/<servicio>/...` sin `limit_*`; las pruebas de **carga** usan el listener admin para medir capacidad de los servicios, y solo P4 usa el público para observar 429.
+- El listener administrativo `:8081` sirve `/svc/<servicio>/...` **y también `/api/*`** (mismas rutas que el público, sin `limit_req`/`limit_conn`) para que las pruebas de **carga** midan capacidad de los servicios; solo P4 usa el público para observar 429. Las respuestas de `/api/availability` en el admin añaden `X-Upstream` (IP:puerto) para verificar convergencia de réplicas.
 - El TTL del resolver pasa a **1 s** para reducir la ventana en que nginx usa la IP de una réplica recién caída.

@@ -11,3 +11,5 @@ pgdata/
 backups/
 docs/resultados/*.json
 !docs/resultados/.gitkeep
+tests/perf/state.json
+tests/perf/out/

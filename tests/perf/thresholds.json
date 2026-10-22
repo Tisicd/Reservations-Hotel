@@ -1,0 +1,5 @@
+{
+  "read": {"p95_ms": 300, "error_pct": 1.0},
+  "reservation": {"p95_ms": 2000},
+  "noise_cv_pct": 15
+}
