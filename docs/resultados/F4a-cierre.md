@@ -34,7 +34,7 @@ Salida final: **27/27 ejecuciones con `hard_fail=False`**. `make invariants` →
 | C / stop | OK | 15.48 / 15.30 / 14.85 | 30 s | sí | sí | 20/20 CONFIRMED, 1 cargo |
 | D / stop | OK | 0.08 / 0.06 / 0.06 | 120 s | sí | sí | 503 fail-closed, sin reinicios |
 | E2 / drop | OK | n/a (síncrona) | 30 s | sí (estado final) | sí | 20/20 CONFIRMED, 0 MANUAL_REVIEW |
-| S / stop | OK | 0.11 / 0.12 / 0.14 | 30 s | sí | sí | TTD≈0.08–0.1 s; Health.Log en informe |
+| S / stop | OK | 0,11 / 0,12 / 0,14 | 30 s | **no (TTD)** | sí (fail-closed) | 0,1 s era el primer error; el TTD real con SIGSTOP es 93,2–96,6 s (ver Correcciones). |
 
 RTO "n/a" en E2: la API es síncrona (`SAGA_SYNC_WAIT_SECONDS=5`); al responder
 201 la reserva ya está `CONFIRMED`. Se reporta el tiempo a estado final en el
@@ -76,7 +76,8 @@ informe E2.
 | Métrica | F4a (antes) | F4b (después) | Por qué |
 |---|---|---|---|
 | D RTO | 0,06–0,08 s | **6,48 s** | D hacía `stop/start`; ahora es recreación real (`rm -sf` + `up -d --no-build`) y el RTO va desde la eliminación hasta la **primera escritura sostenida (3)**. |
-| S TTD | ?0,1 s | **96,62 s** (events) y TTR 4,57 s | 0,1 s era el primer error. TTD se toma de `docker events health_status`; se congelan los procesos con SIGSTOP para que el healthcheck falle. TTD 96,6 s vs 60 s esperado porque cada check consume `timeout`+`interval`; `docker stop` no emite el evento. |
+| S TTD | ≈0,1 s; 8,08 s con `docker pause` | **93,21 s** (SIGSTOP; 96,62 s en otra corrida), TTR 3,43 s; objetivo 30 s **no** | El `pause` congela el healthcheck y Docker no aplica `retries` (8,08 s no válido). Con SIGSTOP de los procesos postgres el check falla de verdad: TTD ≈ `retries` × (`interval` + check) ≈ 12 × 8 ≈ 93–96 s. |
+| S2 (nuevo) | — | 6/6 servicios 503 a 4,75 s; unhealthy 60,8–85,3 s; reconexión 5,96 s | Mide el TTD de los healthchecks de los servicios (5s/5s/12/15s), no solo el fail-closed. |
 | E2 | "n/a (síncrona)" | **p50 770 ms / p95 1048 ms / máx 1062 ms** | Se registra el tiempo a estado final por reserva (la API es síncrona: el 201 ya es CONFIRMED). 20/20 CONFIRMED y 0 MANUAL_REVIEW. Los 20 concurrentes del experimento previo daban ~10×503 por `limit_conn 10`; con E2 acotado a 10 hilos no se toca el limitador (ver `chaos_E2_hallazgo.md`). |
 | B/kill rep1 | 2,42 s (>2 s) | **0,38–0,42 s** (×3) | Se redujo el TTL del resolver a 1 s. Antes la primera caída usaba la IP muerta hasta el refresco DNS (~2 s). Se documenta como mitigación aplicada; no se ajustó el objetivo. |
 | 503 del gateway | 503 indistinguible | **429** | `limit_conn_status 429` y `limit_req_status 429`. Ahora 429 = límite del gateway; 503 = fail-closed del servicio; 502/504 = upstream. Los 429 se excluyen del impacto. |

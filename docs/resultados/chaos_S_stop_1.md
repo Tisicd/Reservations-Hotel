@@ -9,14 +9,14 @@
 - fault_s: 20
 - drain_s: 20
 - semilla: `D:\github\tlhotel\reservas-platform\secrets\seed.json`
-- iniciado: 2026-10-22T19:14:45.614670+00:00
-- finalizado: 2026-10-22T19:16:36.192653+00:00
+- iniciado: 2026-10-22T19:44:58.209826+00:00
+- finalizado: 2026-10-22T19:46:45.888187+00:00
 
 ## Línea de tiempo (segundos desde arranque)
 - baseline: 0 → 15.0
 - falla: 0.0 → 20.0
-- recuperación: healthy en t=106.2
-- fin: 110.6
+- recuperación: healthy en t=103.0
+- fin: 107.7
 
 ## Métricas por fase (peticiones de fondo)
 | fase | peticiones | éxito % | errores por clase | p50_ms | p95_ms | p99_ms |
@@ -25,10 +25,10 @@
 ## Ventanas de indisponibilidad (canario)
 (ninguna ventana detectada)
 
-- TTD (detección): 96.62 s
-- RTO medido: 4.57 s
+- TTD (detección): 93.21 s
+- RTO medido: 93.21 s
 - RTO objetivo: 30 s
-- RTO cumplido: **sí**
+- RTO cumplido: **no**
 
 ## Reinicios de contenedores (RestartCount)
 | servicio | antes | después |
@@ -52,18 +52,18 @@
 - stack_sano_al_terminar: sí
 - sin_2xx_durante_falla: sí
 - ttd_observado: sí
-- rto_vuelta_healthy_cumplido: sí
+- rto_vuelta_healthy_cumplido: no
 
 ## Las 5 preguntas del enunciado
 1. **¿Qué componentes se afectaron?** sin tráfico de fondo en este escenario (C/D/E2/S).
 2. **¿Cuáles siguieron funcionando?** sin tráfico de fondo; se comprobó el estado final de las reservas y los invariantes.
 3. **¿Qué información se perdió?** ninguna (no_perdida_datos OK); outbox pendiente durante la falla=0, tras drenaje=0.
-4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=4.57307729999593 s (objetivo 30 s, cumplido=sí).
+4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=93.21044278144836 s (objetivo 30 s, cumplido=no).
 5. **¿Qué mecanismo mejoraría la resiliencia?** circuit breaker y health check activo en el gateway.
 
 ## Evidencia adicional (Docker health)
-Timeline cruda: ultima buena antes de la caida=si; primer error a 8.004103300001589 s; primer unhealthy (docker events) a 96.62219047546387 s; recovery tras SIGCONT=4.57307729999593 s; downtime total=101.1952677754598 s. Primer write sostenido (3) a 102.61266610000166 s.
-Se congelan los procesos `postgres` con SIGSTOP (no `docker stop`): un contenedor detenido no ejecuta healthchecks y no emite `health_status`; con SIGSTOP el healthcheck sigue ejecutandose y falla, por lo que Docker aplica `retries`. Healthcheck de postgres: interval=5s timeout=5s retries=12 start_period=15s; TTD esperado ~ retries x interval = 60 s.
-Errores durante la caida: {'timeout': 7, 'service_503_fail_closed': 15}; 2xx=0.
-Health.Log (postgres): [{"Start":"2026-10-22T19:16:06.631813172Z","End":"2026-10-22T19:16:09.713412044Z","ExitCode":2,"Output":"/var/run/postgresql:5432 - no response\n"},{"Start":"2026-10-22T19:16:14.714602293Z","End":"2026-10-22T19:16:17.80631128Z","ExitCode":2,"Output":"/var/run/postgresql:5432 - no response\n"},{"Start":"2026-10-22T19:16:22.807375542Z","End":"2026-10-22T19:16:25.896011786Z","ExitCode":2,"Output":"/var/run/postgresql:5432 - no response\n"},{"Start":"2026-10-22T19:16:30.896827371Z","End":"2026-10-22T19:16:30.979079269Z","ExitCode":0,"Output":"/var/run/postgresql:5432 - accepting connections\n"},{"Start":"2026-10-22T19:16:35.979230089Z","End":"2026-10-22T19:16:36.061778925Z","ExitCode":0,"Output":"/var/run/postgresql:5432 - accepting connections\n"}]
+Timeline cruda: ultima buena antes de la caida=si; primer error a 8.00963739999861 s; primer unhealthy (docker events) a 93.21044278144836 s; recovery tras SIGCONT=3.4294284999923548 s; downtime total=96.63987128144072 s. Primer write sostenido (3) a 98.79854109999724 s.
+Se congelan los procesos `postgres` con SIGSTOP (no `docker stop`): un contenedor detenido no ejecuta healthchecks y no emite `health_status`; con SIGSTOP el healthcheck sigue ejecutandose y falla, por lo que Docker aplica `retries`. Healthcheck de postgres: interval=5s timeout=5s retries=12 start_period=15s; TTD esperado ~ retries x (interval + duracion del check) = 12 x (5 + ~3) = ~96 s (rango 60-120 s). Objetivo de 30 s: NO cumplido; el compromiso retries=12 evita falsos unhealthy a cambio de ~96 s de deteccion.
+Errores durante la caida: {'timeout': 7, 'service_503_fail_closed': 14}; 2xx=0.
+Health.Log (postgres): [{"Start":"2026-10-22T19:46:16.417755873Z","End":"2026-10-22T19:46:19.494920924Z","ExitCode":2,"Output":"/var/run/postgresql:5432 - no response\n"},{"Start":"2026-10-22T19:46:24.495609481Z","End":"2026-10-22T19:46:27.58102073Z","ExitCode":2,"Output":"/var/run/postgresql:5432 - no response\n"},{"Start":"2026-10-22T19:46:32.581816193Z","End":"2026-10-22T19:46:35.663857336Z","ExitCode":2,"Output":"/var/run/postgresql:5432 - no response\n"},{"Start":"2026-10-22T19:46:40.664985121Z","End":"2026-10-22T19:46:40.753025734Z","ExitCode":0,"Output":"/var/run/postgresql:5432 - accepting connections\n"},{"Start":"2026-10-22T19:46:45.753651602Z","End":"2026-10-22T19:46:45.846867612Z","ExitCode":0,"Output":"/var/run/postgresql:5432 - accepting connections\n"}]
 

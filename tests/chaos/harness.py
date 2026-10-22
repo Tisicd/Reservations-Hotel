@@ -1734,7 +1734,7 @@ def run_scenario_S(mode: str, repeat: int,
     watcher = HealthWatcher(cid)
     watcher.start()
     time.sleep(0.2)
-    _apply(spec)  # docker pause (contenedor sigue vivo; el healthcheck falla)
+    _apply(spec)  # SIGSTOP: el contenedor sigue arriba y el healthcheck falla
     t_fault_wall = time.time()
     t_fault = time.monotonic()
     errors: dict[str, int] = {}
@@ -1831,7 +1831,9 @@ def run_scenario_S(mode: str, repeat: int,
     t_end = time.monotonic()
     finished_at = dt.datetime.now(dt.timezone.utc).isoformat()
     objetivo = _objective_for("S")
-    rto = ttr
+    # El objetivo de 30 s se evalua sobre el TTD (deteccion). Con retries=12
+    # el TTD estructural es ~96 s: el objetivo NO se cumple (ver informe F4b).
+    rto = ttd
     cumplido = rto is not None and rto <= objetivo
     evidence = (
         "Timeline cruda: ultima buena antes de la caida="
@@ -1847,7 +1849,10 @@ def run_scenario_S(mode: str, repeat: int,
         "`health_status`; con SIGSTOP el healthcheck sigue ejecutandose y falla, "
         "por lo que Docker aplica `retries`. Healthcheck de postgres: "
         "interval=5s timeout=5s retries=12 start_period=15s; TTD esperado "
-        "~ retries x interval = 60 s.\n"
+        "~ retries x (interval + duracion del check) = 12 x (5 + ~3) = "
+        "~96 s (rango 60-120 s). Objetivo de 30 s: NO cumplido; el "
+        "compromiso retries=12 evita falsos unhealthy a cambio de ~96 s de "
+        "deteccion.\n"
         f"Errores durante la caida: {errors}; 2xx={errors_2xx}.\n"
         f"Health.Log (postgres): {health_log('postgres')}"
     )
@@ -2411,7 +2416,29 @@ def run_scenario_S2(mode: str, repeat: int,
     if not cid:
         raise RuntimeError("no hay contenedor de postgres")
 
+    # Healthcheck real de cada servicio + watcher de eventos (evidencia).
+    hc: dict[str, dict] = {}
+    watchers: dict[str, HealthWatcher] = {}
+    for svc in app_services:
+        scid = primary_container(svc)
+        if not scid:
+            raise RuntimeError(f"no hay contenedor de {svc}")
+        raw = _check(["docker", "inspect", scid, "--format",
+                      "{{json .Config.Healthcheck}}"]).stdout
+        cfg = json.loads(raw or "{}") or {}
+        secs = lambda k: (cfg.get(k) or 0) / 1e9  # noqa: E731
+        hc[svc] = {
+            "interval": secs("Interval"), "timeout": secs("Timeout"),
+            "retries": int(cfg.get("Retries") or 0),
+            "start_period": secs("StartPeriod"),
+        }
+        w = HealthWatcher(scid)
+        w.start()
+        watchers[svc] = w
+    time.sleep(0.2)
+
     t_fault = time.monotonic()
+    t_fault_wall = time.time()
     _run([*COMPOSE, "stop", "postgres"])
     first_503: dict[str, float] = {}
     during: dict[str, object] = {}
@@ -2422,6 +2449,24 @@ def run_scenario_S2(mode: str, repeat: int,
             if code == 503 and svc not in first_503:
                 first_503[svc] = round(time.monotonic() - t_fault, 2)
         if len(first_503) == len(app_services):
+            break
+        time.sleep(0.5)
+
+    # TTD de cada servicio hasta que Docker lo marca unhealthy.
+    ttd: dict[str, float] = {}
+    unhealthy_deadline = time.monotonic() + 180
+    while time.monotonic() < unhealthy_deadline and len(ttd) < len(app_services):
+        for svc in app_services:
+            if svc in ttd:
+                continue
+            at = watchers[svc].first("unhealthy")
+            if at is None:
+                scid = primary_container(svc)
+                if scid and container_health(scid) == "unhealthy":
+                    at = time.time()
+            if at is not None:
+                ttd[svc] = round(at - t_fault_wall, 2)
+        if len(ttd) == len(app_services):
             break
         time.sleep(0.5)
 
@@ -2438,6 +2483,8 @@ def run_scenario_S2(mode: str, repeat: int,
         if len(ready_200) == len(app_services):
             break
         time.sleep(0.5)
+    for w in watchers.values():
+        w.stop()
 
     snapshot_after = snapshot_state()
     try:
@@ -2454,7 +2501,17 @@ def run_scenario_S2(mode: str, repeat: int,
         hard_fail_reason = "invariantes: " + "; ".join(
             str(v) for v in violations[:5])
 
+    expected = {
+        svc: {"min": round(hc[svc]["retries"] * hc[svc]["interval"], 2),
+              "max": round(hc[svc]["retries"] * (hc[svc]["interval"] +
+                                                hc[svc]["timeout"]), 2)}
+        for svc in app_services
+    }
+    in_range = {svc: (svc in ttd and
+                      expected[svc]["min"] <= ttd[svc] <= expected[svc]["max"])
+                for svc in app_services}
     all_503 = len(first_503) == len(app_services)
+    all_unhealthy = len(ttd) == len(app_services)
     all_recovered = len(ready_200) == len(app_services)
     # Ningun 200 durante la caida (tras el primer 503 de cada servicio).
     false_200 = [svc for svc in app_services
@@ -2464,12 +2521,18 @@ def run_scenario_S2(mode: str, repeat: int,
     rto = max(ready_200.values()) if ready_200 else None
     objetivo = _objective_for("S")
     cumplido = rto is not None and rto <= objetivo
+    expected_repr = {s: expected[s] for s in app_services}
     evidence = (
+        f"Healthcheck por servicio (s): {hc}. "
         f"Antes (codigos /ready): {before}. "
         f"Primer 503 por servicio (s desde stop postgres): {first_503}. "
+        f"TTD hasta unhealthy por servicio (s): {ttd}. "
+        f"TTD esperado (retries*interval .. retries*(interval+timeout)): "
+        f"{expected_repr}; en rango: {in_range}. "
         f"Ultimos codigos durante la caida: {during}. "
         f"Reconexion a 200 tras start (s): {ready_200}. "
         f"Servicios con 503={len(first_503)}/{len(app_services)}; "
+        f"servicios unhealthy={len(ttd)}/{len(app_services)}; "
         f"servicios recuperados={len(ready_200)}/{len(app_services)}; "
         f"2xx falsos durante la caida={false_200}; invariantes={len(violations)}."
     )
@@ -2479,19 +2542,25 @@ def run_scenario_S2(mode: str, repeat: int,
         baseline_seconds=baseline_seconds, fault_seconds=fault_seconds,
         drain_seconds=drain_seconds, rps=rps, seed_file=str(SEED_PATH),
         started_at=started_at, finished_at=finished_at,
-        t_baseline=0.0, t_fault=0.0, t_recovered=None,
-        t_end=t_end - t0, rtt_ttd_seconds=None, rto_seconds=rto,
+        t_baseline=0.0, t_fault=0.0,
+        t_end=t_end - t0, rtt_ttd_seconds=max(ttd.values()) if ttd else None,
+        rto_seconds=rto,
         rto_objective_seconds=objetivo, rto_cumplido=cumplido,
+        t_recovered=((t_start - t0) + max(ready_200.values()))
+        if ready_200 else None,
         pendiente_durante_falla=0, pendiente_despues_drenaje=0,
         exito_baseline=100.0, exito_falla=0.0,
         restart_before={}, restart_after={},
         health_before=stack_healthy(), health_after=stack_healthy(),
-        hard_fail=hard_fail or (not all_503) or (not all_recovered)
-        or (not no_loss) or (not invariants_ok) or bool(false_200),
+        hard_fail=hard_fail or (not all_503) or (not all_unhealthy)
+        or (not all_recovered) or (not no_loss) or (not invariants_ok)
+        or bool(false_200),
         hard_fail_reason=hard_fail_reason or (
-            None if (not hard_fail and all_503 and all_recovered and no_loss
-                     and invariants_ok and not false_200)
-            else "no todos los servicios dieron 503, no reconectaron o 2xx falso"),
+            None if (not hard_fail and all_503 and all_unhealthy
+                     and all_recovered and no_loss and invariants_ok
+                     and not false_200)
+            else "no todos dieron 503, no todos quedaron unhealthy, "
+                 "no reconectaron o hubo 2xx falso"),
         metrics_by_phase={}, outage_windows=[],
         assertions={
             "invariantes_cero_violaciones": invariants_ok,
