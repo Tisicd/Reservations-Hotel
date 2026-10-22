@@ -9,13 +9,13 @@
 - fault_s: 20
 - drain_s: 20
 - semilla: `D:\github\tlhotel\reservas-platform\secrets\seed.json`
-- iniciado: 2026-10-22T02:46:45.669342+00:00
-- finalizado: 2026-10-22T02:46:59.264549+00:00
+- iniciado: 2026-10-22T14:14:09.013655+00:00
+- finalizado: 2026-10-22T14:14:22.572330+00:00
 
 ## Línea de tiempo (segundos desde arranque)
 - baseline: 0 → 15.0
 - falla: 0.0 → 20.0
-- recuperación: healthy en t=6.8
+- recuperación: healthy en t=7.2
 - fin: 13.6
 
 ## Métricas por fase (peticiones de fondo)
@@ -26,7 +26,7 @@
 (ninguna ventana detectada)
 
 - TTD: no detectado
-- RTO medido: 6.84 s
+- RTO medido: 7.20 s
 - RTO objetivo: 30 s
 - RTO cumplido: **sí**
 
@@ -58,6 +58,6 @@
 1. **¿Qué componentes se afectaron?** sin tráfico de fondo en este escenario (C/D/E2/S).
 2. **¿Cuáles siguieron funcionando?** sin tráfico de fondo; se comprobó el estado final de las reservas y los invariantes.
 3. **¿Qué información se perdió?** ninguna (no_perdida_datos OK); outbox pendiente durante la falla=0, tras drenaje=0.
-4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=6.8361192000011215 s (objetivo 30 s, cumplido=sí).
+4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=7.196365900003002 s (objetivo 30 s, cumplido=sí).
 5. **¿Qué mecanismo mejoraría la resiliencia?** replicar la API de reservation y worker con elección de líder.
 
