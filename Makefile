@@ -1,4 +1,4 @@
-.PHONY: up up-dev down test lint clean clean-all secrets deps seed invariants e2e smoke gateway-refresh snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel snapshot-notification build images prune ensure-images chaos
+.PHONY: up up-dev up-prod backup restore down test lint clean clean-all secrets deps seed invariants e2e smoke gateway-refresh snapshot-availability snapshot-payment snapshot-reservation snapshot-customer snapshot-hotel snapshot-notification build images prune ensure-images chaos
 
 PYTHON ?= python
 VENV := .venv
@@ -47,7 +47,13 @@ chaos: deps ensure-images
 ensure-images:
 	@$(PYTHON) scripts/docker_images.py --check
 
+# `up` levanta el perfil de desarrollo (incluye listener admin 8081 y 8088),
+# que es lo que necesitan `seed`, e2e, smoke y caos.
 up: secrets ensure-images
+	$(COMPOSE_DEV) up -d --no-build --wait
+
+# Perfil sin listener admin (solo gateway publico).
+up-prod: secrets ensure-images
 	docker compose up -d --no-build --wait
 
 up-dev: secrets ensure-images
@@ -60,14 +66,22 @@ gateway-refresh:
 	$(COMPOSE_DEV) restart gateway
 	$(COMPOSE_DEV) up -d --no-build --wait gateway
 
+DIR ?=
+
+backup: deps
+	$(PYTHON) scripts/backup.py
+
+restore: deps
+	@$(PYTHON) scripts/restore.py $(DIR)
+
 down:
-	docker compose down
+	$(COMPOSE_DEV) down
 
 clean:
-	docker compose down -v
+	$(COMPOSE_DEV) down -v
 
 clean-all:
-	docker compose down -v
+	$(COMPOSE_DEV) down -v
 	$(PYTHON) -c "import pathlib; pathlib.Path('secrets/seed.json').unlink(missing_ok=True)"
 
 lint: deps

@@ -77,3 +77,11 @@ dependencias (pip install) aparece como `CACHED` en la salida.
 - `HEALTHCHECK` contra `/ready`.
 - `.dockerignore` por servicio: excluye `.git`, `.venv/`, `__pycache__/`,
   `tests/`, `docs/`, `*.md`, `secrets/`, `backups/`, caches de herramientas.
+
+## Perfiles de despliegue (F4b)
+
+- `make up` levanta el perfil **dev** (publica admin `8081` y público `8088`);
+  `make up-prod` levanta solo el perfil público. El perfil no cambia las
+  imágenes: siguen siendo las 6 `:local` + `postgres:16` + `nginx:1.27.4-alpine`.
+- La imagen de carga `grafana/k6` (Parte 2) se ejecuta con `docker run --rm` y
+  se documenta aparte; no entra en las imágenes del producto.

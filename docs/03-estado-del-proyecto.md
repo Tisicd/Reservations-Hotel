@@ -21,7 +21,7 @@
 - Hexagonal ligera en availability, reservation, payment, notification; CRUD modular en customer/hotel (`04-arquitectura.md`, ADR-0001).
 - Saga con `advance(reservation_id)`; estado persistido antes de cada llamada; clave de pago = `reservation_id` (ADR-0003).
 - Fail-closed en escritura de inventario; fail-open en notificaciones (outbox → relay → inbox idempotente).
-- Comandos: `make up|down|clean|clean-all|seed|test|e2e|smoke|invariants|lint|build|images|prune`; F4a añade `make chaos [SCEN=A|B|C|D|E2|S] [REPEAT=n]` (no forma parte de `make test` ni del CI por defecto).
+- Comandos: `make up|up-prod|down|clean|clean-all|seed|test|e2e|smoke|invariants|lint|build|images|prune`; F4a añade `make chaos [SCEN=A|B|C|D|E2|S] [REPEAT=n]` (no forma parte de `make test` ni del CI por defecto).
 
 ## 3. Invariantes (el contrato de pruebas)
 I1 sin sobreventa · I2 una reserva por intención y cadena de estados legal · I3 un cobro por reserva · I4 CONFIRMED ⇔ pago y hold confirmados · I5 todo estado no estable avanza o expira · I6 CONFIRMED ⇒ exactamente un evento (entregado o pendiente) · I7 lo comprometido sobrevive a reinicios. Chequeador: `make invariants`.

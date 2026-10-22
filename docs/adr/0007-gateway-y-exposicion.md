@@ -11,3 +11,8 @@
 
 ## Consecuencias
 (+) Superficie mínima y demostrable (`docker compose ps`/`nmap` local). (−) nginx OSS solo hace health check **pasivo**. (−) El rate limiting no frena DDoS volumétrico: eso requiere CDN/WAF (documentado).
+
+## Actualización F4b (2026-10-22)
+- Los límites del gateway responden **429** (`limit_req_status 429`, `limit_conn_status 429`), no 503. Así un 429 (`límite del gateway`) es distinguible de un 503 (`fail-closed` de un servicio) y de un 502/504 (`upstream`). Los 429 **no** cuentan como impacto de una falla.
+- El listener administrativo `:8081` sirve `/svc/<servicio>/...` sin `limit_*`; las pruebas de **carga** usan el listener admin para medir capacidad de los servicios, y solo P4 usa el público para observar 429.
+- El TTL del resolver pasa a **1 s** para reducir la ventana en que nginx usa la IP de una réplica recién caída.

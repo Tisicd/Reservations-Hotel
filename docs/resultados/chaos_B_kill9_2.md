@@ -9,22 +9,22 @@
 - fault_s: 20
 - drain_s: 20
 - semilla: `D:\github\tlhotel\reservas-platform\secrets\seed.json`
-- iniciado: 2026-10-22T02:44:12.901592+00:00
-- finalizado: 2026-10-22T02:45:27.421262+00:00
+- iniciado: 2026-10-22T13:56:16.162011+00:00
+- finalizado: 2026-10-22T13:57:29.798810+00:00
 
 ## Línea de tiempo (segundos desde arranque)
 - baseline: 0 → 15.0
 - falla: 15.4 → 35.4
 - recuperación: healthy en t=35.8
-- fin: 56.9
+- fin: 55.8
 
 ## Métricas por fase (peticiones de fondo)
 | fase | peticiones | éxito % | errores por clase | p50_ms | p95_ms | p99_ms |
 |---|---|---|---|---|---|---|
-| baseline | 23 | 100.0 | — | 7.0 | 31.6 | 138.6 |
-| falla | 30 | 100.0 | — | 7.6 | 53.1 | 145.8 |
-| drenaje | 30 | 100.0 | — | 7.7 | 200.2 | 223.0 |
-| falla_retry | 30 | 100.0 | — | 6.8 | 51.8 | 139.0 |
+| baseline | 23 | 100.0 | — | 7.7 | 36.0 | 36.9 |
+| falla | 30 | 100.0 | — | 7.9 | 51.6 | 70.6 |
+| drenaje | 30 | 100.0 | — | 7.3 | 42.5 | 44.1 |
+| falla_retry | 30 | 100.0 | — | 7.5 | 48.7 | 52.3 |
 
 ## Ventanas de indisponibilidad (canario)
 (ninguna ventana detectada)
@@ -58,9 +58,9 @@
 - exito_con_reintento >= 99%: sí
 
 ## Las 5 preguntas del enunciado
-1. **¿Qué componentes se afectaron?** 30/30 peticiones OK (100.0%), errores {}, p95=53.1 ms.
+1. **¿Qué componentes se afectaron?** 30/30 peticiones OK (100.0%), errores {}, p95=51.6 ms.
 2. **¿Cuáles siguieron funcionando?** el flujo respondió 100.0% durante la falla (baseline 100.0%).
 3. **¿Qué información se perdió?** ninguna (no_perdida_datos OK); outbox pendiente durante la falla=0, tras drenaje=0.
-4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=0.20915610000156448 s (objetivo 2 s, cumplido=sí).
+4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=0.20970310000120662 s (objetivo 2 s, cumplido=sí).
 5. **¿Qué mecanismo mejoraría la resiliencia?** health check activo y reintentos acotados; autoescalado en multinodo.
 
