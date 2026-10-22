@@ -77,3 +77,17 @@ Brechas reales a completar en FASE 2:
 5. Las 5 preguntas de los informes no llevan cifras explícitas.
 6. Falta `docs/fallos.md`; `docs/03-estado-del-proyecto.md` sin actualizar.
 7. `OUTBOX_BACKLOG_OLD` sin prueba unitaria específica.
+
+## Actualización tras FASE 2 (evidencia)
+
+| Requisito | Estado final | Evidencia |
+|---|---|---|
+| 1b `OUTBOX_BACKLOG_OLD` probada | ✔ | `pytest tests/invariants` → **18 passed** (incluye `test_outbox_backlog_old`) |
+| 2c `recreate`/`health_log` | ✔ | `tests/chaos/harness.py`: `recreate()` (`rm -sf` + `up -d --no-build`) y `health_log()` |
+| 3 pruebas unitarias del arnés | ✔ | `pytest tests/chaos/test_harness.py` → **6 passed** |
+| 4 E2 y S | ✔ | `make chaos REPEAT=3` → **27/27 hard_fail=False**; S con TTD y `Health.Log` |
+| 5 informes con cifras | ✔ | 5 preguntas con éxito %, errores, p95, outbox y RTO; S incluido (`chaos_S_stop_*.md`) |
+| 7 `docs/fallos.md` y `03-estado` | ✔ | `docs/fallos.md` creado; `03-estado` marca F4 "En curso" y documenta `make chaos` |
+| 8 `make images` 0 nuevas | ✔ | IDs de imágenes idénticos antes/después de la batería (`Compare-Object`: sin diferencias) |
+
+Resultado global del protocolo y hallazgos: ver `docs/resultados/F4a-cierre.md`.
