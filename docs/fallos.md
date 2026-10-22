@@ -13,6 +13,9 @@
 | C | Reiniciar `reservation` con 20 reservas confirmadas | estado estable, 1 cargo por reserva, 0 holds duplicados | `chaos_C_kill9_1.md`, `chaos_C_stop_1.md` |
 | D | Reiniciar `postgres` con el mismo volumen bajo carga | no pérdida, RestartCount sin cambios, 503 fail-closed | `chaos_D_stop_1.md` |
 | E2 | 20 reservas con `process_then_drop_response` | UNKNOWN → reconciliación → CONFIRMED, 1 cargo | `chaos_E2_drop_1.md`, `chaos_E2_hallazgo.md` |
+| E1 | PostgreSQL cae en plena carga (stop/pkill -9) | durabilidad de lo reconocido (I7), invariantes, 1 cargo | `chaos_E1_stop_*.md`, `chaos_E1_pkill9_*.md` |
+| E3 | P?rdida del volumen + restaurar backup (A reposo / B caliente) | RTO de restauraci?n, RPO observado, invariantes | `chaos_E3_A_*.md`, `chaos_E3_B_*.md` |
+| E4 | Reinicio ordenado de PostgreSQL con servicios activos | servicios reconectan sin reiniciarse | pendiente (recortable) |
 | S | Detener `postgres`; observar `/ready` y salud de Docker | 503 (nunca 2xx falsos), TTD, tiempo a healthy | `chaos_S_stop_1.md` |
 
 ## Mecanismos de recuperación observados
