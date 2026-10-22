@@ -9,8 +9,8 @@
 - fault_s: 20
 - drain_s: 20
 - semilla: `D:\github\tlhotel\reservas-platform\secrets\seed.json`
-- iniciado: 2026-10-22T18:08:53.767818+00:00
-- finalizado: 2026-10-22T18:09:06.213672+00:00
+- iniciado: 2026-10-22T19:10:19.895327+00:00
+- finalizado: 2026-10-22T19:10:32.322096+00:00
 
 ## Línea de tiempo (segundos desde arranque)
 - baseline: 0 → 15.0
@@ -26,7 +26,7 @@
 (ninguna ventana detectada)
 
 - TTD: no detectado
-- RTO medido: 6.61 s
+- RTO medido: 6.59 s
 - RTO objetivo: 30 s
 - RTO cumplido: **sí**
 
@@ -39,7 +39,7 @@
 | payment | 0 | 0 |
 | reservation | 0 | 0 |
 | notification | 0 | 0 |
-| postgres | 0 | 0 |
+| postgres | 1 | 0 |
 | gateway | 0 | 0 |
 
 ## Medidas del escenario
@@ -61,5 +61,5 @@
 5. **¿Qué mecanismo mejoraría la resiliencia?** más réplicas y health checks activos.
 
 ## Evidencia adicional (Docker health)
-Reinicio ordenado de postgres (docker compose restart). Reconexion por servicio (s desde el restart): {'customer': 6.59, 'hotel': 6.59, 'availability': 6.6, 'payment': 6.6, 'reservation': 6.61, 'notification': 6.61}. Servicios de aplicacion sin reiniciar=True (RestartCount antes={'customer': 0, 'hotel': 0, 'availability': 0, 'payment': 0, 'reservation': 0, 'notification': 0, 'postgres': 0, 'gateway': 0}, despues={'customer': 0, 'hotel': 0, 'availability': 0, 'payment': 0, 'reservation': 0, 'notification': 0, 'postgres': 0, 'gateway': 0}). healthy postgres=True; invariantes=0.
+Reinicio ordenado de postgres (docker compose restart). Reconexion por servicio (s desde el restart): {'customer': 6.54, 'hotel': 6.55, 'availability': 6.56, 'payment': 6.57, 'reservation': 6.58, 'notification': 6.59}. Servicios de aplicacion sin reiniciar=True (RestartCount antes={'customer': 0, 'hotel': 0, 'availability': 0, 'payment': 0, 'reservation': 0, 'notification': 0, 'postgres': 1, 'gateway': 0}, despues={'customer': 0, 'hotel': 0, 'availability': 0, 'payment': 0, 'reservation': 0, 'notification': 0, 'postgres': 0, 'gateway': 0}). healthy postgres=True; invariantes=0.
 

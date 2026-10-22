@@ -9,14 +9,14 @@
 - fault_s: 20
 - drain_s: 20
 - semilla: `D:\github\tlhotel\reservas-platform\secrets\seed.json`
-- iniciado: 2026-10-22T13:48:57.172176+00:00
-- finalizado: 2026-10-22T13:49:45.536760+00:00
+- iniciado: 2026-10-22T19:18:08.111658+00:00
+- finalizado: 2026-10-22T19:18:45.626140+00:00
 
 ## Línea de tiempo (segundos desde arranque)
 - baseline: 0 → 15.0
 - falla: 0.0 → 20.0
 - recuperación: no alcanzó healthy
-- fin: 48.4
+- fin: 37.5
 
 ## Métricas por fase (peticiones de fondo)
 | fase | peticiones | éxito % | errores por clase | p50_ms | p95_ms | p99_ms |
@@ -26,7 +26,7 @@
 (ninguna ventana detectada)
 
 - TTD: no detectado
-- RTO medido: 36.39 s
+- RTO medido: 32.25 s
 - RTO objetivo: 900 s
 - RTO cumplido: **sí**
 
@@ -60,6 +60,6 @@
 5. **¿Qué mecanismo mejoraría la resiliencia?** más réplicas y health checks activos.
 
 ## Evidencia adicional (Docker health)
-Variante B; backup=20261022T134903Z; volumen=reservas-platform_pgdata. RTO borrado->trafico+invariantes=36.4 s (objetivo 900). Reservas creadas tras el backup perdidas (RPO observado)=5/5. Invariantes tras restaurar=0 (variante B: observacional, no se corrige).
+Variante B; backup=20261022T191809Z; volumen=reservas-platform_pgdata. RTO borrado->trafico+invariantes=32.3 s (objetivo 900). Reservas creadas tras el backup perdidas (RPO observado)=5/5. Invariantes tras restaurar=0 (variante B: observacional, no se corrige).
 Violaciones: []
 

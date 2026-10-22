@@ -9,14 +9,14 @@
 - fault_s: 20
 - drain_s: 20
 - semilla: `D:\github\tlhotel\reservas-platform\secrets\seed.json`
-- iniciado: 2026-10-22T14:14:32.453882+00:00
-- finalizado: 2026-10-22T14:14:55.045235+00:00
+- iniciado: 2026-10-22T19:04:25.829206+00:00
+- finalizado: 2026-10-22T19:04:48.990226+00:00
 
 ## Línea de tiempo (segundos desde arranque)
 - baseline: 0 → 15.0
 - falla: 0.0 → 20.0
-- recuperación: healthy en t=16.0
-- fin: 22.6
+- recuperación: healthy en t=15.9
+- fin: 23.2
 
 ## Métricas por fase (peticiones de fondo)
 | fase | peticiones | éxito % | errores por clase | p50_ms | p95_ms | p99_ms |
@@ -26,7 +26,7 @@
 (ninguna ventana detectada)
 
 - TTD: no detectado
-- RTO medido: 16.00 s
+- RTO medido: 15.86 s
 - RTO objetivo: 30 s
 - RTO cumplido: **sí**
 
@@ -39,7 +39,7 @@
 | payment | 0 | 0 |
 | reservation | 0 | 0 |
 | notification | 0 | 0 |
-| postgres | 0 | 0 |
+| postgres | 1 | 1 |
 | gateway | 0 | 0 |
 
 ## Medidas del escenario
@@ -58,6 +58,6 @@
 1. **¿Qué componentes se afectaron?** sin tráfico de fondo en este escenario (C/D/E2/S).
 2. **¿Cuáles siguieron funcionando?** sin tráfico de fondo; se comprobó el estado final de las reservas y los invariantes.
 3. **¿Qué información se perdió?** ninguna (no_perdida_datos OK); outbox pendiente durante la falla=0, tras drenaje=0.
-4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=16.000724600002286 s (objetivo 30 s, cumplido=sí).
+4. **¿Cómo se recuperó?** política de reinicio/worker de recuperación; RTO medido=15.860667500004638 s (objetivo 30 s, cumplido=sí).
 5. **¿Qué mecanismo mejoraría la resiliencia?** replicar la API de reservation y worker con elección de líder.
 

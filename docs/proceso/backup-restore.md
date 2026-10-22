@@ -46,3 +46,21 @@ volumen → `up -d --no-build postgres` (init-db recrea roles/BDs) → `restore`
 - **Variante B (backup en caliente):** backup con servicios activos. Es
   observacional: se reportan las violaciones de invariantes si aparecen (los
   `pg_dump` por BD no son una instantánea consistente entre servicios).
+
+## RPO real y frecuencia de backup
+
+El **RPO observado** tras una pérdida de volumen es la antigüedad del último
+backup: todo lo confirmado después de `T0` se pierde al restaurar. Hoy `make
+backup` es **manual**, así que el RPO real depende de cuándo se ejecute:
+
+- Si se hace backup cada `N` horas, el RPO ≤ `N` horas (peor caso: justo antes
+  del siguiente backup).
+- En E3 el backup se tomó en `T0` y se crearon 5 reservas después; el RPO
+  observado fue **5/5** reservas perdidas (la brecha real frente al RPO objetivo
+  de F0, que asume backups programados ≤ 24 h).
+- Para reducir el RPO: programar `make backup` (cron/Task Scheduler) o pasar a
+  WAL archiving / PITR (documentado como evolución en F0 §3.1, no implementado).
+
+No se oculta la brecha: el diseño actual garantiza RPO 0 ante caída de
+proceso/contenedor (volumen íntegro), pero **no** ante pérdida del volumen sin
+un backup reciente.

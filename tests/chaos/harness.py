@@ -305,6 +305,15 @@ def pkill9(svc: str, name: str, container: str | None = None) -> None:
     _run(["docker", "exec", cid, "pkill", "-9", "-x", name])
 
 
+def exec_signal(svc: str, signum: str, name: str,
+                container: str | None = None) -> None:
+    """Envia una senal (STOP/CONT) a todos los procesos con nombre exacto."""
+    cid = container or primary_container(svc)
+    if not cid:
+        raise RuntimeError(f"no hay contenedor para {svc}")
+    _run(["docker", "exec", cid, "pkill", f"-{signum}", "-x", name])
+
+
 def wait_healthy(container: str, timeout: int = 60) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -733,6 +742,20 @@ def hold_count(reservation_id: str) -> int:
     return int(rows[0][0]) if rows else 0
 
 
+def charge_counts(reservation_ids: list[str]) -> dict[str, int]:
+    if not reservation_ids:
+        return {}
+    rows = pg_query(
+        "payment_db",
+        "SELECT p.reservation_id, count(*) FROM ledger l "
+        "JOIN payments p ON p.id = l.payment_id "
+        "WHERE l.kind='CHARGE' AND p.reservation_id = ANY(:ids) "
+        "GROUP BY p.reservation_id",
+        {"ids": reservation_ids},
+    )
+    return {str(r[0]): int(r[1]) for r in rows}
+
+
 def reservation_count() -> int:
     rows = pg_query("reservation_db", "SELECT count(*) FROM reservations")
     return int(rows[0][0]) if rows else 0
@@ -814,6 +837,11 @@ def _apply(spec: FaultSpec) -> None:
         if not spec.pattern:
             raise ValueError("pkill requiere pattern")
         pkill9(spec.svc, spec.pattern, spec.container)
+    elif spec.kind in ("stop_procs", "cont_procs"):
+        if not spec.pattern:
+            raise ValueError("stop_procs/cont_procs requiere pattern")
+        sig = "STOP" if spec.kind == "stop_procs" else "CONT"
+        exec_signal(spec.svc, sig, spec.pattern, spec.container)
     elif spec.kind == "pause":
         pause(spec.svc, spec.container)
     elif spec.kind == "unpause":
@@ -1662,8 +1690,12 @@ def run_scenario_S(mode: str, repeat: int,
     cid = primary_container("postgres")
     if not cid:
         raise RuntimeError("no hay contenedor de postgres")
-    spec = FaultSpec("pause", "postgres", container=cid)
-    recovery = FaultSpec("unpause", "postgres", container=cid)
+    # Congela todos los procesos de postgres: el healthcheck (pg_isready)
+    # falla normalmente y Docker marca unhealthy tras `retries` fallos.
+    spec = FaultSpec("stop_procs", "postgres", container=cid,
+                     pattern="postgres")
+    recovery = FaultSpec("cont_procs", "postgres", container=cid,
+                         pattern="postgres")
 
     restart_before = {svc: restart_count(svc) for svc in SERVICES}
     snapshot_before = snapshot_state()
@@ -1738,14 +1770,13 @@ def run_scenario_S(mode: str, repeat: int,
 
     ttd = (unhealthy_at - t_fault_wall) if unhealthy_at else None
 
-    _apply(recovery)  # docker unpause
+    t_cont = time.monotonic()
+    _apply(recovery)  # SIGCONT
     recovered = wait_healthy(cid, timeout=120)
     t_recovered = time.monotonic() if recovered else None
     watcher.stop()
-    healthy_at = watcher.first(
-        "healthy", after=(unhealthy_at if unhealthy_at else t_fault_wall - 1))
-    ttr = (healthy_at - t_fault_wall) if healthy_at else (
-        (t_recovered - t_fault) if t_recovered else None)
+    # TTR = tiempo desde descongelar hasta healthy (recovery operativo).
+    ttr = (t_recovered - t_cont) if t_recovered else None
 
     rto_write = None
     w_deadline = time.monotonic() + 120
@@ -1807,13 +1838,16 @@ def run_scenario_S(mode: str, repeat: int,
         f"{'si' if base_ok else 'no'}; primer error a "
         f"{t_first_error if t_first_error is not None else 'n/d'} s; "
         "primer unhealthy (docker events) a "
-        f"{ttd if ttd is not None else 'n/d'} s; primer healthy de nuevo a "
-        f"{ttr if ttr is not None else 'n/d'} s (desde el pause). "
+        f"{ttd if ttd is not None else 'n/d'} s; recovery tras SIGCONT="
+        f"{ttr if ttr is not None else 'n/d'} s; downtime total="
+        f"{(ttd + ttr) if (ttd is not None and ttr is not None) else 'n/d'} s. "
         f"Primer write sostenido (3) a {rto_write if rto_write is not None else 'n/d'} s.\n"
-        "Se usa `docker pause` (no `stop`) porque un contenedor detenido no "
-        "emite `health_status: unhealthy`: se verifico que `docker stop` deja "
-        "`State.Health.Status=unhealthy` sin evento y detiene los healthchecks. "
-        "Con pause el healthcheck falla y Docker emite la transicion.\n"
+        "Se congelan los procesos `postgres` con SIGSTOP (no `docker stop`): "
+        "un contenedor detenido no ejecuta healthchecks y no emite "
+        "`health_status`; con SIGSTOP el healthcheck sigue ejecutandose y falla, "
+        "por lo que Docker aplica `retries`. Healthcheck de postgres: "
+        "interval=5s timeout=5s retries=12 start_period=15s; TTD esperado "
+        "~ retries x interval = 60 s.\n"
         f"Errores durante la caida: {errors}; 2xx={errors_2xx}.\n"
         f"Health.Log (postgres): {health_log('postgres')}"
     )
@@ -1864,7 +1898,9 @@ def run_scenario_E1(mode: str, repeat: int,
     run_id = uuid.uuid4().hex[:8]
     started_at = dt.datetime.now(dt.timezone.utc).isoformat()
     t0 = time.monotonic()
-
+    # Semilla registrada: caida en instante aleatorio reproducible.
+    seed_value = 1000 + repeat
+    rng = random.Random(seed_value)
     snapshot_before = snapshot_state()
     restart_before = {svc: restart_count(svc) for svc in SERVICES}
     close_error = None
@@ -1876,17 +1912,24 @@ def run_scenario_E1(mode: str, repeat: int,
     customer = seed["customers"][0]
     base_day = dt.date.today() + dt.timedelta(
         days=1000 + int(time.time()) % 1000000)
-    days = [base_day + dt.timedelta(days=i) for i in range(21)]
+    days = [base_day + dt.timedelta(days=i) for i in range(25)]
     for day in days:
         client.put(
             f"{ADMIN_URL}/availability/inventory/{room['id']}",
             json={"hotel_id": hotel["id"], "from": day.isoformat(),
-                  "to": (day + dt.timedelta(days=1)).isoformat(), "total": 100},
+                  "to": (day + dt.timedelta(days=1)).isoformat(),
+                  "total": 1000},
         )
-    rng = random.Random()
 
-    def fire(simulate: str = "ok") -> tuple[str, str | None]:
-        day = rng.choice(days)
+    lock = threading.Lock()
+    ack_before: list[str] = []
+    ack_during: list[str] = []
+    errors: dict[str, int] = {}
+    ok_during = 0
+
+    def create_one() -> tuple[str, str | None]:
+        day = days[uuid.uuid4().int % len(days)]
+        simulate = "slow" if uuid.uuid4().int % 5 == 0 else "ok"
         key = f"chaos-e1-{run_id}-{uuid.uuid4().hex[:10]}"
         body = {
             "customer_id": customer["id"],
@@ -1912,33 +1955,48 @@ def run_scenario_E1(mode: str, repeat: int,
         rid = r.json().get("id") if body_status == "CONFIRMED" else None
         return "ok", rid
 
-    errors: dict[str, int] = {}
-    ok_during = 0
-    ack_before: list[str] = []
-    ack_during: list[str] = []
+    # Precarga: >= 200 reservas reconocidas (201 CONFIRMED) antes de la caida.
+    preload_target = 200
+    preload_deadline = time.monotonic() + 180
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        while (len(ack_before) < preload_target
+               and time.monotonic() < preload_deadline):
+            futures = [pool.submit(create_one) for _ in range(8)]
+            for fut in futures:
+                cls, rid = fut.result()
+                if cls != "ok":
+                    with lock:
+                        errors[cls] = errors.get(cls, 0) + 1
+                elif rid:
+                    with lock:
+                        ack_before.append(rid)
 
-    t_base_end = time.monotonic() + baseline_seconds
-    while time.monotonic() < t_base_end:
-        cls, rid = fire("slow" if rng.random() < 0.2 else "ok")
-        if cls != "ok":
-            errors[cls] = errors.get(cls, 0) + 1
-        if rid:
-            ack_before.append(rid)
-        time.sleep(0.4)
+    stop_load = threading.Event()
+
+    def load_loop() -> None:
+        nonlocal ok_during
+        while not stop_load.is_set():
+            cls, rid = create_one()
+            with lock:
+                if cls != "ok":
+                    errors[cls] = errors.get(cls, 0) + 1
+                else:
+                    ok_during += 1
+                if rid:
+                    ack_during.append(rid)
+            time.sleep(0.05)
+
+    load_thread = threading.Thread(target=load_loop, daemon=True)
+    load_thread.start()
+    crash_delay = rng.uniform(0.5, 2.0)
+    time.sleep(crash_delay)
 
     t_fault = time.monotonic()
     spec = _fault_spec("E1", mode)
     _apply(spec)
     t_fault_end = t_fault + fault_seconds
     while time.monotonic() < t_fault_end:
-        cls, rid = fire("ok")
-        if cls != "ok":
-            errors[cls] = errors.get(cls, 0) + 1
-        else:
-            ok_during += 1
-        if rid:
-            ack_during.append(rid)
-        time.sleep(0.4)
+        time.sleep(0.5)
 
     if mode == "stop":
         _apply(FaultSpec("start", "postgres", container=spec.container))
@@ -1946,13 +2004,13 @@ def run_scenario_E1(mode: str, repeat: int,
     recovered = wait_healthy(cid, timeout=180) if cid else False
     t_recovered = time.monotonic() if recovered else None
 
-    # RTO a escritura sostenida (3 consecutivas) desde la caida.
+    # RTO a escritura sostenida (3) desde la caida.
     rto = None
     cons = 0
     first_ok: float | None = None
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
-        cls, rid = fire("ok")
+        cls, rid = create_one()
         if cls == "ok":
             if first_ok is None:
                 first_ok = time.monotonic() - t_fault
@@ -1962,16 +2020,19 @@ def run_scenario_E1(mode: str, repeat: int,
                 break
         else:
             cons = 0
-            errors[cls] = errors.get(cls, 0) + 1
-        time.sleep(0.4)
-
-    for _ in range(5):
-        fire("ok")
+            with lock:
+                errors[cls] = errors.get(cls, 0) + 1
         time.sleep(0.3)
+
+    stop_load.set()
+    load_thread.join(timeout=10)
+    for _ in range(3):
+        create_one()
+        time.sleep(0.2)
 
     acknowledged = list(dict.fromkeys(ack_before + ack_during))
     final_states: dict[str, str] = {}
-    deadline = time.monotonic() + 120
+    deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
         final_states = reservation_statuses(acknowledged)
         if acknowledged and all(final_states.get(r) == "CONFIRMED"
@@ -1980,7 +2041,8 @@ def run_scenario_E1(mode: str, repeat: int,
         time.sleep(2)
 
     durable_ok = all(final_states.get(r) == "CONFIRMED" for r in acknowledged)
-    charges_ok = all(charge_count(r) == 1 for r in acknowledged)
+    counts = charge_counts(acknowledged)
+    charges_ok = all(counts.get(r, 0) == 1 for r in acknowledged)
     manual_review = sum(1 for s in final_states.values()
                         if s == "MANUAL_REVIEW")
 
@@ -2008,15 +2070,14 @@ def run_scenario_E1(mode: str, repeat: int,
     pg_logs = "\n".join(
         _run([*COMPOSE, "logs", "--tail", "25", "postgres"]).stdout.splitlines())
     evidence = (
-        f"Acknowledged (201 CONFIRMED) antes={len(ack_before)}, "
-        f"durante={len(ack_during)}; todos CONFIRMED tras recuperar="
-        f"{durable_ok}; 1 cargo por reserva={charges_ok}; "
-        f"MANUAL_REVIEW={manual_review}.\n"
-        "Timeline cruda: ultima buena antes de la caida="
-        f"{len(ack_before) > 0}; RTO a escritura sostenida (3)="
-        f"{rto if rto is not None else 'n/d'} s desde la caida; healthy de "
-        f"nuevo en t={(t_recovered - t0) if t_recovered else 'n/d'} s. "
-        f"2xx durante la ventana de falla={ok_during}. "
+        f"Semilla={seed_value}; retraso de caida={crash_delay:.2f} s; "
+        f"ack antes de la caida={len(ack_before)} (objetivo >=200); "
+        f"ack durante={len(ack_during)}; todos CONFIRMED tras recuperar="
+        f"{durable_ok}; 1 cargo/reserva={charges_ok}; "
+        f"MANUAL_REVIEW={manual_review}; 2xx durante la ventana={ok_during}. "
+        f"RTO a escritura sostenida (3)={rto if rto is not None else 'n/d'} s "
+        f"desde la caida; healthy de nuevo en t="
+        f"{(t_recovered - t0) if t_recovered else 'n/d'} s. "
         f"Errores por clase: {errors}.\n"
         "Ultimas lineas del log de PostgreSQL (incluye recuperacion WAL):\n"
         f"{pg_logs}"
@@ -2036,17 +2097,20 @@ def run_scenario_E1(mode: str, repeat: int,
         restart_before=restart_before,
         restart_after=restart_after,
         health_before=stack_healthy(), health_after=stack_healthy(),
-        hard_fail=hard_fail or (not durable_ok) or (not charges_ok)
-        or (not no_loss) or (not invariants_ok) or (manual_review != 0),
+        hard_fail=hard_fail or (len(ack_before) < 200) or (not durable_ok)
+        or (not charges_ok) or (not no_loss) or (not invariants_ok)
+        or (manual_review != 0),
         hard_fail_reason=hard_fail_reason or (
-            None if (not hard_fail and durable_ok and charges_ok and no_loss
-                     and invariants_ok and manual_review == 0)
-            else "fallo de durabilidad/integridad, cobro duplicado, "
-                 "MANUAL_REVIEW o perdida de datos"),
+            None if (not hard_fail and len(ack_before) >= 200 and durable_ok
+                     and charges_ok and no_loss and invariants_ok
+                     and manual_review == 0)
+            else "menos de 200 ack, fallo de durabilidad/integridad, cobro "
+                 "duplicado, MANUAL_REVIEW o perdida de datos"),
         metrics_by_phase={}, outage_windows=[],
         assertions={
             "invariantes_cero_violaciones": invariants_ok,
             "no_perdida_datos": no_loss,
+            "ack_antes_caida_suficientes": len(ack_before) >= 200,
             "durabilidad_ack_confirmado": durable_ok,
             "un_cargo_por_reserva": charges_ok,
             "sin_manual_review": manual_review == 0,
@@ -2056,10 +2120,6 @@ def run_scenario_E1(mode: str, repeat: int,
         evidence=evidence,
     )
 
-
-# ---------------------------------------------------------------------------
-# Escenario E3: perdida del volumen + restauracion desde backup
-# ---------------------------------------------------------------------------
 
 def _create_confirmed(client, hotel, room, customer, run_id, tag, day):
     key = f"chaos-e3-{run_id}-{tag}-{uuid.uuid4().hex[:8]}"
@@ -2075,7 +2135,8 @@ def _create_confirmed(client, hotel, room, customer, run_id, tag, day):
         r = client.post(f"{PUBLIC_URL}/reservations", json=body,
                         headers={"Idempotency-Key": key,
                                  "X-Request-ID": f"e3-{key}"})
-        if r.status_code in (200, 201, 202) and                 r.json().get("status") == "CONFIRMED":
+        if r.status_code in (200, 201, 202) and \
+                r.json().get("status") == "CONFIRMED":
             return r.json().get("id")
     except Exception:
         pass
@@ -2317,6 +2378,133 @@ def run_scenario_E4(mode: str, repeat: int,
     )
 
 
+
+# ---------------------------------------------------------------------------
+# Escenario S2: postgres detenido => /ready 503 en los servicios
+# ---------------------------------------------------------------------------
+
+def run_scenario_S2(mode: str, repeat: int,
+                    baseline_seconds: float, fault_seconds: float,
+                    drain_seconds: float, rps: float) -> ScenarioResult:
+    seed = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+    run_id = uuid.uuid4().hex[:8]
+    started_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    t0 = time.monotonic()
+    client = httpx.Client(timeout=8)
+    app_services = ["customer", "hotel", "availability", "payment",
+                    "reservation", "notification"]
+    snapshot_before = snapshot_state()
+    close_error = None
+    hard_fail_reason = None
+
+    def ready_codes() -> dict[str, object]:
+        codes: dict[str, object] = {}
+        for svc in app_services:
+            try:
+                codes[svc] = client.get(f"{ADMIN_URL}/{svc}/ready").status_code
+            except Exception as exc:  # noqa: BLE001
+                codes[svc] = classify_error(exc, None)
+        return codes
+
+    before = ready_codes()
+    cid = primary_container("postgres")
+    if not cid:
+        raise RuntimeError("no hay contenedor de postgres")
+
+    t_fault = time.monotonic()
+    _run([*COMPOSE, "stop", "postgres"])
+    first_503: dict[str, float] = {}
+    during: dict[str, object] = {}
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        during = ready_codes()
+        for svc, code in during.items():
+            if code == 503 and svc not in first_503:
+                first_503[svc] = round(time.monotonic() - t_fault, 2)
+        if len(first_503) == len(app_services):
+            break
+        time.sleep(0.5)
+
+    t_start = time.monotonic()
+    _run([*COMPOSE, "start", "postgres"])
+    recovered = wait_healthy(cid, timeout=120)
+    ready_200: dict[str, float] = {}
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        codes = ready_codes()
+        for svc, code in codes.items():
+            if code == 200 and svc not in ready_200:
+                ready_200[svc] = round(time.monotonic() - t_start, 2)
+        if len(ready_200) == len(app_services):
+            break
+        time.sleep(0.5)
+
+    snapshot_after = snapshot_state()
+    try:
+        assert_no_loss(snapshot_before, snapshot_after)
+        no_loss = True
+    except AssertionError as exc:
+        no_loss = False
+        close_error = str(exc)
+    violations = check_all(grace_seconds=60)
+    invariants_ok = len(violations) == 0
+    hard_fail = False
+    if violations:
+        hard_fail = True
+        hard_fail_reason = "invariantes: " + "; ".join(
+            str(v) for v in violations[:5])
+
+    all_503 = len(first_503) == len(app_services)
+    all_recovered = len(ready_200) == len(app_services)
+    # Ningun 200 durante la caida (tras el primer 503 de cada servicio).
+    false_200 = [svc for svc in app_services
+                 if svc not in first_503 and during.get(svc) == 200]
+    t_end = time.monotonic()
+    finished_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    rto = max(ready_200.values()) if ready_200 else None
+    objetivo = _objective_for("S")
+    cumplido = rto is not None and rto <= objetivo
+    evidence = (
+        f"Antes (codigos /ready): {before}. "
+        f"Primer 503 por servicio (s desde stop postgres): {first_503}. "
+        f"Ultimos codigos durante la caida: {during}. "
+        f"Reconexion a 200 tras start (s): {ready_200}. "
+        f"Servicios con 503={len(first_503)}/{len(app_services)}; "
+        f"servicios recuperados={len(ready_200)}/{len(app_services)}; "
+        f"2xx falsos durante la caida={false_200}; invariantes={len(violations)}."
+    )
+
+    return ScenarioResult(
+        scenario_id="S2", mode=mode, repeat=repeat,
+        baseline_seconds=baseline_seconds, fault_seconds=fault_seconds,
+        drain_seconds=drain_seconds, rps=rps, seed_file=str(SEED_PATH),
+        started_at=started_at, finished_at=finished_at,
+        t_baseline=0.0, t_fault=0.0, t_recovered=None,
+        t_end=t_end - t0, rtt_ttd_seconds=None, rto_seconds=rto,
+        rto_objective_seconds=objetivo, rto_cumplido=cumplido,
+        pendiente_durante_falla=0, pendiente_despues_drenaje=0,
+        exito_baseline=100.0, exito_falla=0.0,
+        restart_before={}, restart_after={},
+        health_before=stack_healthy(), health_after=stack_healthy(),
+        hard_fail=hard_fail or (not all_503) or (not all_recovered)
+        or (not no_loss) or (not invariants_ok) or bool(false_200),
+        hard_fail_reason=hard_fail_reason or (
+            None if (not hard_fail and all_503 and all_recovered and no_loss
+                     and invariants_ok and not false_200)
+            else "no todos los servicios dieron 503, no reconectaron o 2xx falso"),
+        metrics_by_phase={}, outage_windows=[],
+        assertions={
+            "invariantes_cero_violaciones": invariants_ok,
+            "no_perdida_datos": no_loss,
+            "todos_los_servicios_503": all_503,
+            "todos_reconectan_200": all_recovered,
+            "sin_2xx_durante_caida": not false_200,
+        },
+        close_ok=no_loss, close_error=close_error,
+        evidence=evidence,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Reportes
 # ---------------------------------------------------------------------------
@@ -2461,13 +2649,13 @@ def write_reports(result: ScenarioResult) -> tuple[pathlib.Path, pathlib.Path]:
 # ---------------------------------------------------------------------------
 
 def _list_scenarios() -> list[str]:
-    return ["A", "B", "C", "D", "E1", "E2", "E3", "E4", "S"]
+    return ["A", "B", "C", "D", "E1", "E2", "E3", "E4", "S", "S2"]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ejecutar escenarios de caos.")
     parser.add_argument("--scenario", default="all",
-                        help="A | B | C | D | E1 | E2 | E3 | E4 | S | all (default: all)")
+                        help="A | B | C | D | E1 | E2 | E3 | E4 | S | S2 | all (default: all)")
     parser.add_argument("--repeat", type=int, default=1,
                         help="número de repeticiones (default: 1)")
     parser.add_argument("--baseline-seconds", type=float,
@@ -2490,7 +2678,7 @@ def main(argv: list[str] | None = None) -> int:
     scenarios = _list_scenarios() if args.scenario == "all" else [args.scenario]
     modes = {"A": ["api", "worker"], "B": ["kill", "kill9"],
              "C": ["kill9", "stop"], "D": ["stop"], "E1": ["stop", "pkill9"],
-             "E2": ["drop"], "E3": ["A", "B"], "E4": ["restart"], "S": ["stop"]}
+             "E2": ["drop"], "E3": ["A", "B"], "E4": ["restart"], "S": ["stop"], "S2": ["stop"]}
 
     results: list[ScenarioResult] = []
     any_hard_fail = False
@@ -2498,6 +2686,10 @@ def main(argv: list[str] | None = None) -> int:
         for mode in modes[scen]:
             for rep in range(1, args.repeat + 1):
                 print(f"=== escenario {scen} modo {mode} repetición {rep} ===")
+                if scen == "E3" and os.environ.get(
+                        "CHAOS_ALLOW_VOLUME_DELETE") != "1":
+                    print("  (E3 omitido: requiere CHAOS_ALLOW_VOLUME_DELETE=1)")
+                    continue
                 if scen in ("C", "D"):
                     if scen == "C":
                         result = run_scenario_C(mode, rep,
@@ -2531,6 +2723,12 @@ def main(argv: list[str] | None = None) -> int:
                                              args.rps)
                 elif scen == "E3":
                     result = run_scenario_E3(mode, rep,
+                                             args.baseline_seconds,
+                                             args.fault_seconds,
+                                             args.drain_seconds,
+                                             args.rps)
+                elif scen == "S2":
+                    result = run_scenario_S2(mode, rep,
                                              args.baseline_seconds,
                                              args.fault_seconds,
                                              args.drain_seconds,
