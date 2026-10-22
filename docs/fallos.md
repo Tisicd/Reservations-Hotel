@@ -15,8 +15,9 @@
 | E2 | 20 reservas con `process_then_drop_response` | UNKNOWN → reconciliación → CONFIRMED, 1 cargo | `chaos_E2_drop_1.md`, `chaos_E2_hallazgo.md` |
 | E1 | PostgreSQL cae en plena carga (stop/pkill -9) | durabilidad de lo reconocido (I7), invariantes, 1 cargo | `chaos_E1_stop_*.md`, `chaos_E1_pkill9_*.md` |
 | E3 | P?rdida del volumen + restaurar backup (A reposo / B caliente) | RTO de restauraci?n, RPO observado, invariantes | `chaos_E3_A_*.md`, `chaos_E3_B_*.md` |
-| E4 | Reinicio ordenado de PostgreSQL con servicios activos | servicios reconectan sin reiniciarse | pendiente (recortable) |
-| S | Detener `postgres`; observar `/ready` y salud de Docker | 503 (nunca 2xx falsos), TTD, tiempo a healthy | `chaos_S_stop_1.md` |
+| E4 | Reinicio ordenado de PostgreSQL con servicios activos | servicios reconectan sin reiniciarse | `chaos_E4_restart_*.md` |
+| S | Congelar procesos de `postgres` (SIGSTOP) y observar salud | 503 (nunca 2xx falsos), TTD (~93 s), TTR | `chaos_S_stop_1.md` |
+| S2 | Detener `postgres`; observar `/ready` y unhealthy de los 6 servicios | 503, TTD de healthchecks (60–85 s), reconexión | `chaos_S2_stop_1.md` |
 
 ## Mecanismos de recuperación observados
 
@@ -31,3 +32,23 @@
 - Un solo contenedor PostgreSQL: punto único de fallo (ver D y S).
 - Sin réplica de PostgreSQL ni PITR (documentado como evolución en F0 §3.1).
 - Sin dead-letter en el outbox; se mitiga con la alarma `OUTBOX_BACKLOG_OLD`.
+- **RPO dependiente de backup manual**: E3 pierde las reservas creadas después
+  del último `make backup` (5/5 en la prueba). Ver `proceso/backup-restore.md`.
+- **Backup por BD, no consistente entre servicios**: los dumps se toman en
+  momentos distintos; una restauración puede quedar desalineada entre BDs.
+- **S TTD ≈ 93 s > 30 s**: `retries=12` evita falsos unhealthy pero retrasa la
+  detección; ver `resultados/F4b-resiliencia.md`.
+
+<!-- report:findings -->
+## Hallazgos F4b Parte 2
+
+- B/kill: objetivo no cumplido en 1/5 reps (máx 2.41 s vs 2 s; mediana 0.33 s)
+- S/stop: objetivo no cumplido en 1/1 reps (máx 93.21 s vs 30 s; mediana 93.21 s)
+- B/kill: 1/5 reps > 2 s (máx 2.41 s); intermitente, no se ajusta el objetivo
+- P3 V2/N=3: rps ruidoso (CV 31 %)
+- S: `retries=12` da TTD ≈ 93 s (> 30 s); se mantiene por falsos positivos.
+- `limit_conn`/`limit_req` son por IP: el listener admin sin límites se usa para medir capacidad; P4 (público) quedó recortado.
+- RPO depende de la frecuencia de `make backup` (manual).
+- Backup por BD, no consistente entre servicios (ventana entre dumps).
+- P2, P5 y P4 no ejecutados (recorte declarado en este reporte).
+<!-- /report:findings -->

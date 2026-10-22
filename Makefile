@@ -130,6 +130,9 @@ perf-setup: deps
 perf: deps
 	$(VENV_PY) tests/perf/run.py --perf $(PERF)
 
+report: deps
+	$(VENV_PY) scripts/report.py
+
 invariants: deps
 	$(VENV_PY) tests/invariants/checker.py --grace 60
 
