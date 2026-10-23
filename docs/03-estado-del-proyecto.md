@@ -9,7 +9,7 @@
 | F0 Negocio y resiliencia | ✔ G0 cerrado | `fases/F0-negocio-y-resiliencia.md` |
 | F1 Flujo crítico | ✔ | availability, payment, reservation, customer, hotel, chequeador de invariantes, e2e. Tag `f1` |
 | F2 Integración | ✔ consolidada | notification + outbox/relay, gateway, availability x3. G1 formal: ver `fases/F2-integracion.md` |
-| F3 Frontend mínimo | **Siguiente** | `fases/F3-frontend.md` (+ spec detallada en `prompts/F3-frontend.md`) |
+| F3 Frontend mínimo | **Implementado** (2026-10-23) | `gateway/html/` + `make smoke` + `tests/e2e/test_public_flow.py`; guion en `manual.md` |
 | F4 Fallos, carga y reportes | **En curso** | F4a (caos A–D, E2, S): `fases/F4-fallos-carga-reportes.md`, `docs/fallos.md`, `docs/resultados/chaos_*.md` |
 | F5 Entrega (informe, manual, costos) | Pendiente (la documentación corre en paralelo) | `fases/F5-entrega.md` |
 | F6 Defensa (28–30 oct, por confirmar) | Pendiente | `fases/F6-defensa.md` |

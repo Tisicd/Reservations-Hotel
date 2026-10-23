@@ -99,7 +99,9 @@ def test_rutas_publicas_y_administrativas():
         )
     # Rutas no publicadas no se filtran.
     _assert(_get("/api/payments"), 404, f"{PUBLIC}/api/payments")
-    _assert(_get("/"), 404, f"{PUBLIC}/")
+    front = _get("/")
+    _assert(front, 200, f"{PUBLIC}/")
+    assert "text/html" in front.headers.get("content-type", "")
     # Notifications es de solo lectura en el puerto publico.
     _assert(
         httpx.post(f"{PUBLIC}/api/notifications", json={}, timeout=10),

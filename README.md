@@ -23,3 +23,11 @@ Plataforma de reservas de hoteles basada en 6 microservicios Docker, con foco en
 3. `make seed` — siembra datos iniciales (`secrets/seed.json`).
 
 Luego `make test`, `make e2e`, `make smoke` o `make invariants`.
+
+## Frontend (F3)
+
+Tras `make up && make seed`, abrir `http://127.0.0.1:8088/`: una pantalla
+demuestra búsqueda, cliente, reserva, línea de tiempo, notificación, reenvío
+idempotente y cancelación. `make smoke` comprueba el HTML/JS/CSS, las
+cabeceras de seguridad y que las rutas internas no estén expuestas. Guion de
+la demo y capturas: [`docs/manual.md`](docs/manual.md).
