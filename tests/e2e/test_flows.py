@@ -20,7 +20,7 @@ import pytest
 # Base aleatoria por ejecucion: repetir `make e2e` no reutiliza inventario
 # ni reservas confirmadas de una corrida anterior. Rango amplio y disjunto
 # del de test_notifications (evita colisiones al repetir el E2E muchas veces).
-BASE = dt.date.today() + dt.timedelta(days=1000 + uuid.uuid4().int % 1_000_000)
+BASE = dt.date.today() + dt.timedelta(days=100_000 + uuid.uuid4().int % 900_000)
 
 
 def _today(offset: int) -> dt.date:
@@ -140,7 +140,7 @@ def test_04_carrera_por_la_ultima_unidad(stack, race_customers, invariants):
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             finals = stack.confirmed_on(race_customers, day)
-            if len(finals) == 1 and stack.available(day) == 0:
+            if len(finals) == 1 and stack.available(day, admin=True) == 0:
                 break
             time.sleep(0.5)
 
@@ -150,7 +150,7 @@ def test_04_carrera_por_la_ultima_unidad(stack, race_customers, invariants):
         assert len(finals) == 1, (
             f"esperaba 1 CONFIRMED final y hay {len(finals)}; "
             f"status HTTP={[r.status_code for r in responses]}")
-        assert stack.available(day) == 0
+        assert stack.available(day, admin=True) == 0
         assert stack.payment_of(finals[0]["id"])["status"] == "SUCCEEDED"
         assert all(stack.payment_of(item["id"]) is None for item in rejected)
     invariants()

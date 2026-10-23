@@ -17,7 +17,9 @@ from checker import check_all  # noqa: E402
 PUBLIC_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:8088/api").rstrip("/")
 ADMIN_URL = os.getenv("GATEWAY_ADMIN_URL", "http://127.0.0.1:8081/svc").rstrip("/")
 RESERVATION_URL = os.getenv("RESERVATION_URL", PUBLIC_URL)
+RESERVATION_ADMIN_URL = os.getenv("RESERVATION_ADMIN_URL", f"{ADMIN_URL}/reservation")
 AVAILABILITY_URL = os.getenv("AVAILABILITY_URL", PUBLIC_URL)
+AVAILABILITY_ADMIN_URL = os.getenv("AVAILABILITY_ADMIN_URL", f"{ADMIN_URL}/availability")
 INVENTORY_URL = os.getenv("INVENTORY_URL", f"{ADMIN_URL}/availability")
 PAYMENT_URL = os.getenv("PAYMENT_URL", f"{ADMIN_URL}/payment")
 CUSTOMER_URL = os.getenv("CUSTOMER_URL", PUBLIC_URL)
@@ -37,10 +39,11 @@ class Stack:
         response.raise_for_status()
         return response.json()
 
-    def available(self, day) -> int:
+    def available(self, day, admin: bool = False) -> int:
+        base = AVAILABILITY_ADMIN_URL if admin else AVAILABILITY_URL
         body = self._json(
             self.client.get(
-                f"{AVAILABILITY_URL}/availability",
+                f"{base}/availability",
                 params={
                     "hotel_id": self.hotel["id"],
                     "check_in": day.isoformat(),
@@ -89,10 +92,11 @@ class Stack:
             headers={"Idempotency-Key": key, "X-Request-ID": f"e2e-{key}"},
         )
 
-    def list_reservations(self, customer_id: str) -> list[dict]:
+    def list_reservations(self, customer_id: str, admin: bool = False) -> list[dict]:
+        base = RESERVATION_ADMIN_URL if admin else RESERVATION_URL
         return self._json(
             self.client.get(
-                f"{RESERVATION_URL}/reservations", params={"customer_id": customer_id}
+                f"{base}/reservations", params={"customer_id": customer_id}
             )
         )
 
@@ -100,7 +104,7 @@ class Stack:
         """Reservas CONFIRMED de esos clientes en ese día (estado final)."""
         out = []
         for customer in customers:
-            for item in self.list_reservations(customer["id"]):
+            for item in self.list_reservations(customer["id"], admin=True):
                 if item["check_in"] == day.isoformat() and \
                         item["status"] == "CONFIRMED":
                     out.append(item)
