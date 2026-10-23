@@ -1,6 +1,7 @@
 """E2E de notification: entrega, dedupe y caída sin afectar la reserva."""
 
 import datetime as dt
+import itertools
 import pathlib
 import subprocess
 import time
@@ -10,13 +11,14 @@ import httpx
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMPOSE = ["docker", "compose", "-f", "compose.yaml", "-f", "compose.dev.yaml"]
-BASE = dt.date.today() + dt.timedelta(days=1)
+BASE = dt.date.today() + dt.timedelta(days=2_000_000 + uuid.uuid4().int % 1_000_000)
+_COUNTER = itertools.count()
 
 
 def _unique_day() -> dt.date:
-    # Rango disjunto del de test_flows: repetir `make e2e` no choca con
-    # inventario ni reservas de una corrida anterior.
-    return BASE + dt.timedelta(days=4000 + uuid.uuid4().int % 1000)
+    # Rango disjunto del de test_flows; el contador evita colisiones dentro de
+    # la corrida y la base aleatoria amplia las evita entre corridas.
+    return BASE + dt.timedelta(days=next(_COUNTER) * 2)
 
 
 def _container(service: str) -> str:

@@ -96,6 +96,16 @@ class Stack:
             )
         )
 
+    def confirmed_on(self, customers: list[dict], day) -> list[dict]:
+        """Reservas CONFIRMED de esos clientes en ese día (estado final)."""
+        out = []
+        for customer in customers:
+            for item in self.list_reservations(customer["id"]):
+                if item["check_in"] == day.isoformat() and \
+                        item["status"] == "CONFIRMED":
+                    out.append(item)
+        return out
+
     def reservation(self, reservation_id: str) -> dict:
         return self._json(
             self.client.get(f"{RESERVATION_URL}/reservations/{reservation_id}")

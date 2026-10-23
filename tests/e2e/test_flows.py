@@ -12,13 +12,15 @@ fuera del alcance del cierre. Ver docs/resultados/F1.md.
 
 import concurrent.futures
 import datetime as dt
+import time
 import uuid
 
 import pytest
 
 # Base aleatoria por ejecucion: repetir `make e2e` no reutiliza inventario
-# ni reservas confirmadas de una corrida anterior.
-BASE = dt.date.today() + dt.timedelta(days=400 + uuid.uuid4().int % 3000)
+# ni reservas confirmadas de una corrida anterior. Rango amplio y disjunto
+# del de test_notifications (evita colisiones al repetir el E2E muchas veces).
+BASE = dt.date.today() + dt.timedelta(days=1000 + uuid.uuid4().int % 1_000_000)
 
 
 def _today(offset: int) -> dt.date:
@@ -115,16 +117,42 @@ def test_04_carrera_por_la_ultima_unidad(stack, race_customers, invariants):
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
             responses = list(pool.map(race, range(10)))
-        reservations = [response.json() for response in responses]
-        confirmed = [item for item in reservations if item["status"] == "CONFIRMED"]
-        rejected = [
-            item for item in reservations if item["status"] == "REJECTED_NO_INVENTORY"
-        ]
-        assert len(confirmed) == 1, f"confirmadas: {len(confirmed)}"
-        assert len(rejected) == 9, f"rechazadas: {len(rejected)}"
-        assert stack.payment_of(confirmed[0]["id"])["status"] == "SUCCEEDED"
-        assert all(stack.payment_of(item["id"]) is None for item in rejected)
+
+        confirmed = []
+        rejected = []
+        others = []
+        for response in responses:
+            if response.status_code in (200, 201, 202):
+                item = response.json()
+                if item["status"] == "CONFIRMED":
+                    confirmed.append(item)
+                else:
+                    rejected.append(item)
+            else:
+                # 429 del gateway (limit_req/limit_conn) o 502/503/504
+                # transitorios: la solicitud no confirma. Se valida el
+                # estado final por consulta, no por el cuerpo de la respuesta.
+                others.append(response.status_code)
+
+        # El 429/504 puede ocurrir por el runner (más lento) sin que haya
+        # sobreventa; el estado final se sondea con tiempo límite.
+        finals: list[dict] = []
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            finals = stack.confirmed_on(race_customers, day)
+            if len(finals) == 1 and stack.available(day) == 0:
+                break
+            time.sleep(0.5)
+
+        assert not [s for s in others if s not in (429, 502, 503, 504)], \
+            f"respuestas inesperadas: {others}"
+        assert len(confirmed) <= 1, f"confirmadas en respuestas: {len(confirmed)}"
+        assert len(finals) == 1, (
+            f"esperaba 1 CONFIRMED final y hay {len(finals)}; "
+            f"status HTTP={[r.status_code for r in responses]}")
         assert stack.available(day) == 0
+        assert stack.payment_of(finals[0]["id"])["status"] == "SUCCEEDED"
+        assert all(stack.payment_of(item["id"]) is None for item in rejected)
     invariants()
 
 
