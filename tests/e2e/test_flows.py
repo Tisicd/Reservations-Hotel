@@ -20,7 +20,7 @@ import pytest
 # Base aleatoria por ejecucion: repetir `make e2e` no reutiliza inventario
 # ni reservas confirmadas de una corrida anterior. Rango amplio y disjunto
 # del de test_notifications (evita colisiones al repetir el E2E muchas veces).
-BASE = dt.date.today() + dt.timedelta(days=100_000 + uuid.uuid4().int % 900_000)
+BASE = dt.date.today() + dt.timedelta(days=2_000_000 + int(time.time()) % 400_000)
 
 
 def _today(offset: int) -> dt.date:

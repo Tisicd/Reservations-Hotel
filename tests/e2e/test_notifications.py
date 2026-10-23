@@ -11,7 +11,7 @@ import httpx
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMPOSE = ["docker", "compose", "-f", "compose.yaml", "-f", "compose.dev.yaml"]
-BASE = dt.date.today() + dt.timedelta(days=1_500_000 + uuid.uuid4().int % 400_000)
+BASE = dt.date.today() + dt.timedelta(days=2_450_000 + int(time.time()) % 350_000)
 _COUNTER = itertools.count()
 
 
