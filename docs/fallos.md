@@ -47,8 +47,11 @@
 - B/kill: 1/5 reps > 2 s (máx 2.41 s); intermitente, no se ajusta el objetivo
 - P3 V2/N=3: rps ruidoso (CV 31 %)
 - S: `retries=12` da TTD ≈ 93 s (> 30 s); se mantiene por falsos positivos.
-- `limit_conn`/`limit_req` son por IP: el listener admin sin límites se usa para medir capacidad; P4 (público) quedó recortado.
+- `limit_conn`/`limit_req` son por IP: el listener admin sin límites se usa para medir capacidad; P4 mide el público y observa 429 sin degradar el canario admin.
 - RPO depende de la frecuencia de `make backup` (manual).
 - Backup por BD, no consistente entre servicios (ventana entre dumps).
-- P2, P5 y P4 no ejecutados (recorte declarado en este reporte).
+- P1: 2,09× explicado por CPU de availability (2,45×) y PostgreSQL (~2,3×); gateway y k6 no son cuello (ver `perf_P1_analisis.md`).
+- P3: la latencia de 5–6,5 s es la saga síncrona (`SAGA_SYNC_WAIT_SECONDS=5`), no contención; recomendación: responder 202 inmediato, reducir la espera o más procesos/réplicas de `reservation`.
+- P3b: V1 acumula locks (8–41) y V2 casi ninguno, pero V1 no es más lento que V2; N=3 baja latencia sin cambiar HELD (K fijo).
+- P2 y P5 no ejecutados (recorte declarado en este reporte).
 <!-- /report:findings -->

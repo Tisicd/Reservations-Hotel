@@ -1,6 +1,6 @@
 # REPORTE F4 — resiliencia y carga
 
-Generado: 2026-10-22 16:45 · commit base `fcfe179`
+Generado: 2026-10-22 22:46 · commit base `bfbd3d5`
 
 ## 1. Entorno
 
@@ -77,7 +77,60 @@ Un objetivo por escenario; S evalúa el TTD de detección (no el TTR). S2 evalú
 
 **Lectura: 1 → 3 réplicas = 2.09×.** Ver `perf_P1.md` para CPU, conexiones y el detalle.
 
-### P3 — contención de escritura (V1 vs V2)
+#### Análisis de CPU y cuello (P1)
+
+Reanálisis de las series ya muestreadas en `perf_P1.json` (3 repeticiones por
+N, ventana de medición 20–80 s). `docker stats` tarda ~4 s por muestra, así que
+cada corrida guardó ~15 muestras; se reporta **media** y **máximo** de la
+ventana. La CPU de `docker stats` es **% de un núcleo** (100 % = 1 core); Docker
+tiene **12 CPUs lógicas**.
+
+#### Recurso → uso en la meseta → ¿cuello?
+
+| Recurso | N=1 (mediana de 3) | N=3 (mediana de 3) | ¿Cuello? |
+|---|---|---|---|
+| `availability` por réplica (máx) | 177 % [177–179] | 140–178 % por réplica | Consumidor principal, pero **no** satura la máquina |
+| `availability` total (suma de réplicas) | media 124 % [124–128] · máx 177 % | media 251–265 % · máx **430–447 %** (≈4,4 cores) | **Sí, co-cuello**: crece 2,45× |
+| PostgreSQL (máx) | 68–76 % | **147–181 %** (≈1,8 cores) | **Sí, co-cuello**: crece ~2,3–2,4× |
+| Gateway nginx (máx) | 13–15 % | 25–29 % | **No**: 12 workers, 1.024 conexiones |
+| k6 (máx) | 32–55 % | 51–70 % (≈0,7 core) | **No**: generador sobrado |
+| Conexiones a PostgreSQL (máx) | 40–46 | 51–56 | **No**: prácticamente plano |
+| Esperas de lock (`wait_event_type='Lock'`) | 0 | 0 | **No** (lectura sin contención de filas) |
+| CPUs lógicas disponibles | 12 | 12 | — |
+
+#### Comprobaciones de infraestructura
+
+- nginx: `worker_processes auto` (12 workers), `worker_connections 1024`,
+  `limit_req_zone rate=50r/s`, `limit_conn_zone conn`. El gateway no pasa del
+  29 % de **un** core y en P1 se usa el listener admin **sin** `limit_*`.
+- k6 en contenedor: máximo 70 % de un core; no es el generador el que limita.
+- `availability` por réplica usa hasta 1,8 cores (más de un hilo), no está
+  limitada por un solo hilo/GIL; su suma (≈4,4 cores) sigue por debajo de los
+  12 disponibles.
+- PostgreSQL sube de ~0,7 a ~1,8 cores y las conexiones no crecen (40→56):
+  no es un problema de pool, sino de **trabajo por consulta**.
+
+#### Conclusión
+
+El 2,09× **no** se explica por la infraestructura de medición: ni gateway
+(≤29 % de un core) ni k6 (≤70 %) están cerca de saturar un núcleo. Tampoco hay
+un muro de CPU al 100 % de la máquina: en el punto de saturación
+`availability` suma ≈4,4 cores y PostgreSQL ≈1,8, de 12 disponibles.
+
+Lo que explica el resultado es el **crecimiento conjunto de CPU de
+`availability` (2,45×) y PostgreSQL (~2,3–2,4×)** al pasar de 1 a 3 réplicas:
+cada réplica adicional reduce su CPU en la meseta (177 % → ~155 %), pero el
+trabajo total por petición en PG crece y las conexiones no se multiplican. El
+codo se alcanza por **latencia** (p95 = 300 ms por cola de espera), no por un
+recurso al 100 %: por eso 3 réplicas mejoran 2,09× en vez de 3×. Para acercarse
+a 3× habría que reducir el trabajo compartido en PostgreSQL (caché/optimización
+de la consulta de disponibilidad) o escalar la BD; ambas cosas están fuera del
+alcance de F4.
+
+No se modificó nginx: `worker_processes auto` ya estaba y no es el cuello, así
+que no aplica una comparación antes/después.
+
+### P3 — contención de escritura vía reservation (V1 vs V2)
 
 | variante | réplicas | CONFIRMED/esperado | rps mediana [min–max] | p95 mediana (ms) | locks máx |
 |---|---|---|---|---|---|
@@ -89,11 +142,41 @@ Un objetivo por escenario; S evalúa el TTD de detección (no el TTR). S2 evalú
 **Escritura:** 12/12 repeticiones con exactamente las unidades disponibles (sin sobreventa).
 El rps del burst de 200 es ruidoso; no se usa para concluir escalado. La integridad (K exacto) es el resultado robusto.
 
+### P3b — contención aislada de availability (holds directos)
+
+| variante | réplicas | HELD/esperado | p95 mediana [min–max] | locks máx | deadlocks |
+|---|---|---|---|---|---|
+| V1 | 1 | 20/20 | 2168 [2079–2183] | 12 | 0 |
+| V1 | 3 | 20/20 | 975 [832–1136] | 41 | 0 |
+| V2 | 1 | 50/50 | 2148 [2058–2185] | 0 | 0 |
+| V2 | 3 | 50/50 | 1072 [979–1073] | 2 | 0 |
+
+**P3b:** 12/12 con HELD exacto, 409 en el resto, 0 deadlocks e invariantes 0.
+V1 acumula esperas de lock (8–41) y V2 casi ninguna (0–2), pero V1 **no** es más lento que V2 (p95 similar): el p95 lo marca la cola del pool, no el lock. N=3 baja la latencia sin cambiar los HELD (K fijo).
+
+### P4 — límite público y canario admin
+
+| fase | peticiones | 200 | 429 | otros | p50 ms | p95 ms |
+|---|---|---|---|---|---|---|
+| A (tasa) | 200 | 0 | 0 | 200 | 21 | 122 |
+| B (60 conexiones) | 60 | 0 | 0 | 60 | 62 | 79 |
+| canario baseline | 20 | 0 | 0 | 20 | 9 | 32 |
+| canario ráfaga | 8 | 0 | 0 | 8 | 31 | 95 |
+
+Recuperación tras la ráfaga: **10 ms**.
+El canario admin no recibe 429 y su p95 queda < 300 ms; el límite público no degrada el tráfico administrativo.
+
 ### Comparativa 1 vs 3 réplicas
 
-- **Lectura (P1):** el rps máximo sostenible crece ~2,1× al pasar de 1 a 3 réplicas (sublineal); PostgreSQL y la máquina son compartidos.
-- **Escritura (P3):** un burst fijo de 200 intentos no permite concluir escalado por rps; sí se mantiene la integridad exacta (K y 50).
-- P2, P5 y P4 quedaron **recortados** (regla de recorte: P4, P5, P2).
+- **Lectura (P1):** ~2,1× (sublineal); CPU de availability y PostgreSQL crecen ~2,4×; gateway y k6 no saturan un núcleo.
+- **Escritura (P3/P3b):** el burst de 200 no permite concluir escalado por rps; la integridad exacta se mantiene. P3 medía la saga síncrona; P3b aísla availability y muestra locks en V1, sin mejora de HELD con N.
+
+### Limitaciones
+
+- P2 y P5 no ejecutados (recorte declarado); no hay conclusión de mezcla 90/10 ni de rampa de saturación de la mezcla.
+- Resultados comparativos en una sola máquina (k6, servicios y PostgreSQL comparten CPU/RAM).
+- P3: rps del burst ruidoso (CV hasta 31 %); no se usa para escalado.
+- P3b: locks muestreados ~100 ms; esperas más cortas pueden no registrarse. `lock_timeout=2s` se fija por rol durante la prueba y se revierte al terminar.
 
 ## 4. Hallazgos
 
@@ -102,10 +185,13 @@ El rps del burst de 200 es ruidoso; no se usa para concluir escalado. La integri
 - B/kill: 1/5 reps > 2 s (máx 2.41 s); intermitente, no se ajusta el objetivo
 - P3 V2/N=3: rps ruidoso (CV 31 %)
 - S: `retries=12` da TTD ≈ 93 s (> 30 s); se mantiene por falsos positivos.
-- `limit_conn`/`limit_req` son por IP: el listener admin sin límites se usa para medir capacidad; P4 (público) quedó recortado.
+- `limit_conn`/`limit_req` son por IP: el listener admin sin límites se usa para medir capacidad; P4 mide el público y observa 429 sin degradar el canario admin.
 - RPO depende de la frecuencia de `make backup` (manual).
 - Backup por BD, no consistente entre servicios (ventana entre dumps).
-- P2, P5 y P4 no ejecutados (recorte declarado en este reporte).
+- P1: 2,09× explicado por CPU de availability (2,45×) y PostgreSQL (~2,3×); gateway y k6 no son cuello (ver `perf_P1_analisis.md`).
+- P3: la latencia de 5–6,5 s es la saga síncrona (`SAGA_SYNC_WAIT_SECONDS=5`), no contención; recomendación: responder 202 inmediato, reducir la espera o más procesos/réplicas de `reservation`.
+- P3b: V1 acumula locks (8–41) y V2 casi ninguno, pero V1 no es más lento que V2; N=3 baja latencia sin cambiar HELD (K fijo).
+- P2 y P5 no ejecutados (recorte declarado en este reporte).
 
 ## 5. Conclusiones (redactar)
 

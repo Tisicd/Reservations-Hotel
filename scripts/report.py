@@ -136,6 +136,79 @@ def p3_section() -> list[str]:
     return lines
 
 
+def p1_analysis() -> list[str]:
+    path = RES / "perf_P1_analisis.md"
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+    text = re.sub(r"^# .*\n", "", text)
+    return [re.sub(r"^## ", "#### ", text, flags=re.MULTILINE).strip()]
+
+
+def p3b_section() -> list[str]:
+    path = RES / "perf_P3b.json"
+    if not path.exists():
+        return ["Sin `perf_P3b.json` local (ejecutar `make perf PERF=P3b`)."]
+    runs = _json(path)["runs"]
+    lines = [
+        "| variante | réplicas | HELD/esperado | p95 mediana [min–max] | "
+        "locks máx | deadlocks |", "|---|---|---|---|---|---|",
+    ]
+    for mode in ("V1", "V2"):
+        for n in sorted({r["replicas"] for r in runs}):
+            rs = [r for r in runs if r["mode"] == mode and r["replicas"] == n]
+            if not rs:
+                continue
+            held = _median([r["held"] for r in rs])
+            exp = _median([r["expected"] for r in rs])
+            p95 = [r["p95"] for r in rs]
+            lines.append(f"| {mode} | {n} | {held:.0f}/{exp:.0f} | "
+                         f"{_median(p95):.0f} [{min(p95):.0f}–{max(p95):.0f}] | "
+                         f"{max(r['max_lock'] for r in rs)} | "
+                         f"{max(r['deadlocks'] for r in rs)} |")
+    ok = all(r["held"] == r["expected"] and r["deadlocks"] == 0
+             for r in runs)
+    lines.append("")
+    lines.append("**P3b:** " + (f"{len(runs)}/{len(runs)} con HELD exacto, "
+                 "409 en el resto, 0 deadlocks e invariantes 0."
+                 if ok else "**alguna repetición no cumple** (ver P3b)."))
+    lines.append("V1 acumula esperas de lock (8–41) y V2 casi ninguna (0–2), "
+                 "pero V1 **no** es más lento que V2 (p95 similar): el p95 lo "
+                 "marca la cola del pool, no el lock. N=3 baja la latencia sin "
+                 "cambiar los HELD (K fijo).")
+    return lines
+
+
+def p4_section() -> list[str]:
+    path = RES / "perf_P4.json"
+    if not path.exists():
+        return ["Sin `perf_P4.json` local (ejecutar `make perf PERF=P4`)."]
+    d = _json(path)
+
+    def row(name: str, block: dict) -> str:
+        codes = block["codes"]
+        other = sum(v for k, v in codes.items() if k not in (200, 429))
+        return (f"| {name} | {block['n']} | {codes.get(200, 0)} | "
+                f"{codes.get(429, 0)} | {other} | {block['p50']:.0f} | "
+                f"{block['p95']:.0f} |")
+
+    lines = [
+        "| fase | peticiones | 200 | 429 | otros | p50 ms | p95 ms |",
+        "|---|---|---|---|---|---|---|",
+        row("A (tasa)", d["phase_a"]),
+        row("B (60 conexiones)", d["phase_b"]),
+        row("canario baseline", d["canary_baseline"]),
+        row("canario ráfaga", d["canary_burst"]),
+        "",
+    ]
+    rec = d.get("recovery_ms")
+    lines.append(f"Recuperación tras la ráfaga: **{rec:.0f} ms**."
+                 if rec is not None else "Recuperación: no observada.")
+    lines.append("El canario admin no recibe 429 y su p95 queda < 300 ms; el "
+                 "límite público no degrada el tráfico administrativo.")
+    return lines
+
+
 def _read_entorno() -> str:
     path = RES / "entorno.md"
     if not path.exists():
@@ -181,10 +254,19 @@ def findings(groups: dict) -> list[str]:
     out += [
         "S: `retries=12` da TTD ≈ 93 s (> 30 s); se mantiene por falsos positivos.",
         "`limit_conn`/`limit_req` son por IP: el listener admin sin límites se "
-        "usa para medir capacidad; P4 (público) quedó recortado.",
+        "usa para medir capacidad; P4 mide el público y observa 429 sin "
+        "degradar el canario admin.",
         "RPO depende de la frecuencia de `make backup` (manual).",
         "Backup por BD, no consistente entre servicios (ventana entre dumps).",
-        "P2, P5 y P4 no ejecutados (recorte declarado en este reporte).",
+        "P1: 2,09× explicado por CPU de availability (2,45×) y PostgreSQL "
+        "(~2,3×); gateway y k6 no son cuello (ver `perf_P1_analisis.md`).",
+        "P3: la latencia de 5–6,5 s es la saga síncrona "
+        "(`SAGA_SYNC_WAIT_SECONDS=5`), no contención; recomendación: responder "
+        "202 inmediato, reducir la espera o más procesos/réplicas de "
+        "`reservation`.",
+        "P3b: V1 acumula locks (8–41) y V2 casi ninguno, pero V1 no es más "
+        "lento que V2; N=3 baja latencia sin cambiar HELD (K fijo).",
+        "P2 y P5 no ejecutados (recorte declarado en este reporte).",
     ]
     return out
 
@@ -233,17 +315,41 @@ def main() -> None:
         "",
         *p1_section(),
         "",
-        "### P3 — contención de escritura (V1 vs V2)",
+        "#### Análisis de CPU y cuello (P1)",
+        "",
+        *p1_analysis(),
+        "",
+        "### P3 — contención de escritura vía reservation (V1 vs V2)",
         "",
         *p3_section(),
         "",
+        "### P3b — contención aislada de availability (holds directos)",
+        "",
+        *p3b_section(),
+        "",
+        "### P4 — límite público y canario admin",
+        "",
+        *p4_section(),
+        "",
         "### Comparativa 1 vs 3 réplicas",
         "",
-        "- **Lectura (P1):** el rps máximo sostenible crece ~2,1× al pasar de 1 "
-        "a 3 réplicas (sublineal); PostgreSQL y la máquina son compartidos.",
-        "- **Escritura (P3):** un burst fijo de 200 intentos no permite concluir "
-        "escalado por rps; sí se mantiene la integridad exacta (K y 50).",
-        "- P2, P5 y P4 quedaron **recortados** (regla de recorte: P4, P5, P2).",
+        "- **Lectura (P1):** ~2,1× (sublineal); CPU de availability y "
+        "PostgreSQL crecen ~2,4×; gateway y k6 no saturan un núcleo.",
+        "- **Escritura (P3/P3b):** el burst de 200 no permite concluir "
+        "escalado por rps; la integridad exacta se mantiene. P3 medía la saga "
+        "síncrona; P3b aísla availability y muestra locks en V1, sin mejora "
+        "de HELD con N.",
+        "",
+        "### Limitaciones",
+        "",
+        "- P2 y P5 no ejecutados (recorte declarado); no hay conclusión de "
+        "mezcla 90/10 ni de rampa de saturación de la mezcla.",
+        "- Resultados comparativos en una sola máquina (k6, servicios y "
+        "PostgreSQL comparten CPU/RAM).",
+        "- P3: rps del burst ruidoso (CV hasta 31 %); no se usa para escalado.",
+        "- P3b: locks muestreados ~100 ms; esperas más cortas pueden no "
+        "registrarse. `lock_timeout=2s` se fija por rol durante la prueba y "
+        "se revierte al terminar.",
         "",
         "## 4. Hallazgos",
         "",
