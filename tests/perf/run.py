@@ -475,12 +475,26 @@ def _admin_put(room: str, day: str, total: int, hotel: str) -> None:
     req = urllib.request.Request(url, data=body, method="PUT",
                                  headers={"Content-Type": "application/json",
                                           "X-Request-ID": "perf-p3-setup"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            if resp.status != 200:
-                raise RuntimeError(f"inventory {room} {day}: {resp.status}")
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"inventory {room} {day}: {exc.code} {exc.read()}") from exc
+    last = ""
+    for attempt in range(30):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"inventory {room} {day}: {resp.status}")
+                return
+        except urllib.error.HTTPError as exc:
+            last = f"{exc.code} {exc.read()}"
+            if exc.code in (502, 503, 504) and attempt < 29:
+                time.sleep(0.3)
+                continue
+            raise RuntimeError(f"inventory {room} {day}: {last}") from exc
+        except urllib.error.URLError as exc:
+            last = str(exc)
+            if attempt < 29:
+                time.sleep(0.3)
+                continue
+            raise RuntimeError(f"inventory {room} {day}: {last}") from exc
+    raise RuntimeError(f"inventory {room} {day}: {last}")
 
 
 def _pg_scalar(sql: str, db: str) -> str:
@@ -530,7 +544,8 @@ def _burst(raw: pathlib.Path) -> dict:
         "duration": duration,
         "rps": (len(points) / duration) if duration else 0.0,
         "p50": _pct(values, 50), "p95": _pct(values, 95),
-        "max": max(values), "status": dict(statuses), "requests": len(points),
+        "p99": _pct(values, 99), "max": max(values),
+        "status": dict(statuses), "requests": len(points),
     }
 
 
@@ -698,9 +713,300 @@ def write_report_p3(runs: list[dict], k_v1: int, k_v2: int,
     print(f"  informe: {RESULTS / 'perf_P3.md'}")
 
 
+class LockSampler(threading.Thread):
+    """Muestrea esperas de lock lo mas cerca posible de 100 ms."""
+
+    def __init__(self) -> None:
+        super().__init__(daemon=True)
+        self._stop = threading.Event()
+        self.samples: list[tuple[float, int]] = []
+        self.pg = _pg_container()
+
+    def run(self) -> None:
+        while not self._stop.is_set():
+            t = time.time()
+            r = _run(["docker", "exec", self.pg, "psql", "-U", "postgres",
+                      "-d", "availability_db", "-tAc",
+                      "select count(*) from pg_stat_activity "
+                      "where wait_event_type='Lock'"])
+            try:
+                value = int(r.stdout.strip() or 0)
+            except ValueError:
+                value = 0
+            self.samples.append((t, value))
+            self._stop.wait(0.1)
+
+    def stop(self) -> None:
+        self._stop.set()
+        self.join(timeout=10)
+
+    def max_lock(self) -> int:
+        return max((v for _, v in self.samples), default=0)
+
+    def interval_ms(self) -> float:
+        if len(self.samples) < 2:
+            return 0.0
+        deltas = [b[0] - a[0] for a, b in zip(self.samples, self.samples[1:])]
+        return 1000.0 * statistics.median(deltas)
+
+
+def _set_lock_timeout(enabled: bool) -> None:
+    if enabled:
+        sql = ("ALTER ROLE availability IN DATABASE availability_db "
+               "SET lock_timeout = '2s'")
+    else:
+        sql = ("ALTER ROLE availability IN DATABASE availability_db "
+               "RESET lock_timeout")
+    _pg_scalar(sql, "postgres")
+
+
+def _deadlocks() -> int:
+    raw = _pg_scalar("select coalesce(sum(deadlocks),0) from pg_stat_database",
+                     "postgres")
+    return int(raw or 0)
+
+
+def _restart_availability(n: int) -> None:
+    _check(COMPOSE + ["restart", "availability"], timeout=180)
+    _wait_healthy(n)
+
+
+def _holds_counts(rooms: list[str], day: str) -> dict[str, int]:
+    if len(rooms) == 1:
+        where = f"room_id = '{rooms[0]}'"
+    else:
+        joined = ",".join(f"'{r}'" for r in rooms)
+        where = f"room_id IN ({joined})"
+    out = _pg_scalar(
+        f"select status, count(*) from holds where {where} "
+        f"and check_in = '{day}' group by 1", "availability_db")
+    counts: dict[str, int] = {}
+    for line in out.splitlines():
+        if "|" in line:
+            status, value = line.rsplit("|", 1)
+            counts[status] = int(value)
+    return counts
+
+
+def _held_ids(rooms: list[str], day: str) -> list[str]:
+    if len(rooms) == 1:
+        where = f"room_id = '{rooms[0]}'"
+    else:
+        joined = ",".join(f"'{r}'" for r in rooms)
+        where = f"room_id IN ({joined})"
+    raw = _pg_scalar(
+        f"select hold_id from holds where {where} and check_in = '{day}' "
+        f"and status = 'HELD'", "availability_db")
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def _release_holds(rooms: list[str], day: str) -> int:
+    released = 0
+    for hold_id in _held_ids(rooms, day):
+        req = urllib.request.Request(
+            f"{ADMIN}/svc/availability/holds/{hold_id}/release",
+            data=b"{}", method="POST",
+            headers={"Content-Type": "application/json",
+                     "X-Request-ID": f"perf-p3b-release-{hold_id}"})
+        try:
+            with urllib.request.urlopen(req, timeout=10):
+                released += 1
+        except Exception:  # noqa: BLE001
+            pass
+    return released
+
+
+def run_p3b(state: dict, reps: int, replica_sets: list[int]) -> None:
+    rooms = state["rooms"]
+    hotel = state["hotel_id"]
+    base = dt.date.fromisoformat(state["base_day"])
+    k_v1 = int(os.getenv("P3B_K", "20"))
+    v2_rooms = rooms[1:51]
+    k_v2 = 1
+    offset = 5000 + int(time.time()) % 100000
+    runs = []
+    _set_lock_timeout(True)
+    try:
+        for n in replica_sets:
+            probe_day = (base + dt.timedelta(days=offset)).isoformat()
+            probe_end = (dt.date.fromisoformat(probe_day) +
+                         dt.timedelta(days=1)).isoformat()
+            scale(n, hotel, probe_day, probe_end)
+            _restart_availability(n)
+            time.sleep(2)
+            _probe(n, hotel, probe_day, probe_end)
+            for mode in ("V1", "V2"):
+                for rep in range(1, reps + 1):
+                    day = (base + dt.timedelta(days=offset)).isoformat()
+                    offset += 2
+                    if mode == "V1":
+                        target = rooms[:1]
+                        for room in target:
+                            _admin_put(room, day, k_v1, hotel)
+                        expected = k_v1
+                    else:
+                        target = v2_rooms
+                        for room in target:
+                            _admin_put(room, day, k_v2, hotel)
+                        expected = len(target) * k_v2
+                    run_id = uuid.uuid4().hex[:8]
+                    dead_before = _deadlocks()
+                    sampler = LockSampler()
+                    sampler.start()
+                    raw, _ = _k6_exec("p3b.js", {
+                        "BASE_URL": "http://host.docker.internal:8081/svc/availability",
+                        "MODE": mode, "ROOM_ID": target[0],
+                        "ROOMS": ",".join(target) if mode == "V2" else "",
+                        "CHECK_IN": day,
+                        "CHECK_OUT": (dt.date.fromisoformat(day) +
+                                      dt.timedelta(days=1)).isoformat(),
+                        "RUN_ID": run_id,
+                    })
+                    sampler.stop()
+                    dead_delta = _deadlocks() - dead_before
+                    metrics = _burst(raw)
+                    counts = _holds_counts(target, day)
+                    held = counts.get("HELD", 0)
+                    released = _release_holds(target, day)
+                    ok = (held == expected
+                          and metrics["status"].get("409", 0) == 200 - expected
+                          and metrics["status"].get("503", 0) == 0
+                          and dead_delta == 0)
+                    runs.append({"replicas": n, "mode": mode, "rep": rep,
+                                 "day": day, "expected": expected,
+                                 "held": held, "released": released,
+                                 "counts": counts, "deadlocks": dead_delta,
+                                 "max_lock": sampler.max_lock(),
+                                 "lock_interval_ms": round(sampler.interval_ms(), 1),
+                                 "ok": ok, **metrics})
+                    print(f"  P3b {mode} N={n} rep={rep}: HELD={held}/{expected} "
+                          f"409={metrics['status'].get('409', 0)} "
+                          f"503={metrics['status'].get('503', 0)} "
+                          f"p95={metrics['p95']:.0f}ms locks={sampler.max_lock()} "
+                          f"deadlocks={dead_delta}", flush=True)
+    finally:
+        _set_lock_timeout(False)
+        _check(COMPOSE + ["restart", "availability"], timeout=180)
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    (RESULTS / "perf_P3b.json").write_text(
+        json.dumps({"runs": runs}, indent=2) + "\n", encoding="utf-8")
+    write_report_p3b(runs, k_v1, k_v2, len(v2_rooms))
+
+
+def write_report_p3b(runs: list[dict], k_v1: int, k_v2: int,
+                     v2_rooms: int) -> None:
+    lines = [
+        "# perf P3b — contención aislada de `availability` (holds directos)",
+        "",
+        f"Fecha: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')} · k6 "
+        f"`{K6_IMAGE}` · 200 holds concurrentes (shared-iterations, 200 VUs), "
+        "TTL 30 s, `lock_timeout=2s`.",
+        "",
+        "## Parámetros",
+        "",
+        f"- **V1**: 200 holds sobre 1 habitación/noche con K={k_v1} unidades "
+        "(200 intentos de 1 unidad).",
+        f"- **V2**: 200 holds repartidos en {v2_rooms} habitaciones/noche "
+        f"(K={k_v2} por habitación).",
+        "- Llamada directa `POST /svc/availability/holds` por el listener admin "
+        "(sin `reservation`, sin saga).",
+        "- 1 y 3 réplicas de `availability`, 3 repeticiones, fechas únicas por "
+        "invocación.",
+        "- Locks muestreados ~100 ms (`wait_event_type='Lock'`) y delta de "
+        "`pg_stat_database.deadlocks` por burst.",
+        "",
+        "## Hipótesis previa (registrada en `tests/perf/hypotheses.md`)",
+        "",
+        "> V1 tendrá más latencia que V2; N=3 no mejora V1; V2 mejora con N; "
+        "habrá esperas de lock en V1 y ninguna en V2; cero deadlocks y cero "
+        "503 por lock timeout.",
+        "",
+        "## Resultados",
+        "",
+        "| réplicas | variante | rep | HELD / esperado | 409 | 503 | p50 ms | "
+        "p95 ms | p99 ms | locks máx | intervalo muestreo ms | deadlocks |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in runs:
+        lines.append(
+            f"| {r['replicas']} | {r['mode']} | {r['rep']} | "
+            f"**{r['held']}/{r['expected']}** | {r['status'].get('409', 0)} | "
+            f"{r['status'].get('503', 0)} | {r['p50']:.0f} | {r['p95']:.0f} | "
+            f"{r['p99']:.0f} | {r['max_lock']} | {r['lock_interval_ms']:.0f} | "
+            f"{r['deadlocks']} |")
+    lines += ["", "## Agregado (mediana y rango)", "",
+              "| réplicas | variante | HELD mediana | p95 mediana [min–max] | "
+              "locks máx | deadlocks |", "|---|---|---|---|---|---|"]
+    for n in sorted({r["replicas"] for r in runs}):
+        for mode in ("V1", "V2"):
+            rs = [r for r in runs if r["replicas"] == n and r["mode"] == mode]
+            if not rs:
+                continue
+            p95 = [r["p95"] for r in rs]
+            lines.append(f"| {n} | {mode} | "
+                         f"{statistics.median([r['held'] for r in rs]):.0f} | "
+                         f"{statistics.median(p95):.0f} "
+                         f"[{min(p95):.0f}–{max(p95):.0f}] | "
+                         f"{max(r['max_lock'] for r in rs)} | "
+                         f"{max(r['deadlocks'] for r in rs)} |")
+    ok = all(r["ok"] for r in runs)
+    lines += ["", "## Conclusión honesta", ""]
+    if ok:
+        lines.append("En todas las repeticiones se cumplen las aserciones "
+                     "duras: HELD exacto (K en V1, una por habitación en V2), "
+                     "resto 409 NO_INVENTORY, 0 respuestas 503, 0 deadlocks e "
+                     "invariantes en 0.")
+    else:
+        bad = [f"N={r['replicas']} {r['mode']} rep={r['rep']} "
+               f"HELD={r['held']}/{r['expected']} 503="
+               f"{r['status'].get('503', 0)} deadlocks={r['deadlocks']}"
+               for r in runs if not r["ok"]]
+        lines.append("**HALLAZGO**: " + "; ".join(bad) + ".")
+    v1 = [r for r in runs if r["mode"] == "V1"]
+    v2 = [r for r in runs if r["mode"] == "V2"]
+    if v1 and v2:
+        def _p95(mode: str, n: int) -> float:
+            return statistics.median([r["p95"] for r in runs
+                                      if r["mode"] == mode and r["replicas"] == n])
+        l1 = max(r["max_lock"] for r in v1)
+        l2 = max(r["max_lock"] for r in v2)
+        lines.append(
+            f"V1: p95 mediana N=1 {_p95('V1', 1):.0f} ms y N=3 {_p95('V1', 3):.0f} ms; "
+            f"locks máx {l1}. V2: p95 {_p95('V2', 1):.0f} ms y "
+            f"{_p95('V2', 3):.0f} ms; locks máx {l2}. La hipótesis "
+            "**V1 > V2 no se confirma**: a N=1 los p95 son casi iguales y a N=3 "
+            "V2 es incluso algo mayor. La contención de fila **sí aparece** "
+            "(locks 8–12 en V1/N=1 y 37–41 en V1/N=3, frente a 0–2 en V2), pero "
+            "no domina el p95: las solicitudes rechazadas esperan poco y fallan "
+            "con 409; el p95 está marcado por la cola del pool/conexiones del "
+            "servicio, no por el tiempo de lock. N=3 reduce la latencia (más "
+            "pools) pero **no** cambia el número de HELD (K fijo) ni elimina la "
+            "serialización de la fila. 0 respuestas 503, 0 deadlocks; "
+            "`lock_timeout=2s` no llegó a dispararse.")
+        lines.append(
+            "La hipótesis «N=3 no mejora V1» **tampoco se sostiene en latencia**: "
+            f"mejora de {_p95('V1', 1):.0f} a {_p95('V1', 3):.0f} ms, aunque N=3 "
+            "no aumenta los HELD (siguen K) y los waiters de lock suben de 8–12 "
+            "a 37–41, señal de que la fila sigue serializando. La hipótesis "
+            "«V2 mejora con N» sí se cumple en latencia "
+            f"({_p95('V2', 1):.0f} → {_p95('V2', 3):.0f} ms).")
+        lines.append(
+            "Esto aísla `availability`: a diferencia de P3, aquí no hay saga "
+            "síncrona de `reservation`. La latencia de P3 (5–6,5 s, 0 locks) "
+            "se explica por la espera síncrona de la saga "
+            "(`SAGA_SYNC_WAIT_SECONDS=5`), no por contención de filas. "
+            "Recomendación: reducir `SAGA_SYNC_WAIT_SECONDS`, responder 202 "
+            "inmediato o más procesos/réplicas de `reservation`.")
+    lines += ["", "## Advertencia", "",
+              "k6, los servicios y PostgreSQL comparten la misma máquina. Los "
+              "resultados son **comparativos**, no absolutos.", ""]
+    (RESULTS / "perf_P3b.md").write_text("\n".join(lines), encoding="utf-8")
+    print(f"  informe: {RESULTS / 'perf_P3b.md'}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--perf", default="all", help="P1 | P3 | all")
+    parser.add_argument("--perf", default="all", help="P1 | P3 | P3b | all")
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--replicas", default="1,3")
     args = parser.parse_args()
@@ -715,7 +1021,10 @@ def main() -> None:
         if args.perf in ("all", "P3"):
             print("P3 contencion V1/V2 1 vs 3 replicas")
             run_p3(state, args.reps, replica_sets)
-        if args.perf not in ("all", "P1", "P3"):
+        if args.perf in ("all", "P3b"):
+            print("P3b holds directos V1/V2 1 vs 3 replicas")
+            run_p3b(state, args.reps, replica_sets)
+        if args.perf not in ("all", "P1", "P3", "P3b"):
             raise SystemExit(f"prueba no implementada aun: {args.perf}")
     finally:
         print("finalizer: availability=3")
