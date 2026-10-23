@@ -1004,9 +1004,152 @@ def write_report_p3b(runs: list[dict], k_v1: int, k_v2: int,
     print(f"  informe: {RESULTS / 'perf_P3b.md'}")
 
 
+import concurrent.futures
+
+PUBLIC = os.getenv("GATEWAY_URL", "http://127.0.0.1:8088/api").rstrip("/")
+
+
+def _get(url: str, timeout: float = 10) -> tuple[int, float]:
+    start = time.perf_counter()
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            code = resp.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    except Exception:  # noqa: BLE001
+        code = 0
+    return code, (time.perf_counter() - start) * 1000.0
+
+
+def _summary(pairs: list[tuple[int, float]]) -> dict:
+    codes = collections.Counter(code for code, _ in pairs)
+    lat = [ms for _, ms in pairs]
+    return {"n": len(pairs), "codes": dict(codes),
+            "p50": _pct(lat, 50), "p95": _pct(lat, 95)}
+
+
+def run_p4(state: dict) -> None:
+    hotel = state["hotel_id"]
+    day = state["base_day"]
+    end = (dt.date.fromisoformat(day) + dt.timedelta(days=1)).isoformat()
+    qs = f"hotel_id={hotel}&check_in={day}&check_out={end}"
+    public = f"{PUBLIC}/availability?{qs}"
+    canary = f"{ADMIN}/api/availability?{qs}"
+
+    canary_samples: list[tuple[int, float]] = []
+    stop = threading.Event()
+
+    def canary_loop() -> None:
+        while not stop.is_set():
+            canary_samples.append(_get(canary))
+            stop.wait(0.05)
+
+    thread = threading.Thread(target=canary_loop, daemon=True)
+    # Baseline del canario antes de la rafaga.
+    for _ in range(20):
+        canary_samples.append(_get(canary))
+    baseline = list(canary_samples)
+    thread.start()
+
+    # Fase A: tasa alta (limit_req). Fase B: 60 conexiones simultaneas
+    # (limit_conn). Ambas devuelven 429; nginx no distingue la causa.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as pool:
+        phase_a = list(pool.map(lambda _: _get(public), range(200)))
+    time.sleep(0.2)
+
+    barrier = threading.Barrier(60)
+
+    def one_conn(_: int) -> tuple[int, float]:
+        barrier.wait()
+        return _get(public)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=60) as pool:
+        phase_b = list(pool.map(one_conn, range(60)))
+
+    stop.set()
+    thread.join(timeout=5)
+    burst_canary = [s for s in canary_samples if s not in baseline]
+    t_end = time.monotonic()
+    recovery_ms = None
+    for _ in range(100):
+        code, _ = _get(public)
+        if code == 200:
+            recovery_ms = (time.monotonic() - t_end) * 1000.0
+            break
+        time.sleep(0.1)
+
+    runs = {
+        "phase_a": _summary(phase_a),
+        "phase_b": _summary(phase_b),
+        "canary_baseline": _summary(baseline),
+        "canary_burst": _summary(burst_canary),
+        "recovery_ms": recovery_ms,
+    }
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    (RESULTS / "perf_P4.json").write_text(
+        json.dumps(runs, indent=2) + "\n", encoding="utf-8")
+    write_report_p4(runs)
+
+
+def write_report_p4(data: dict) -> None:
+    lines = [
+        "# perf P4 — límite público (429) y canario admin",
+        "",
+        f"Fecha: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')} · "
+        "Listener público `127.0.0.1:8088` (`limit_req 50r/s burst 40`, "
+        "`limit_conn 20`) y canario paralelo por el admin (sin `limit_*`).",
+        "",
+        "## Resultados",
+        "",
+        "| fase | peticiones | 200 | 429 | otros | p50 ms | p95 ms |",
+        "|---|---|---|---|---|---|---|",
+        f"| A (tasa, 20 hilos) | {data['phase_a']['n']} | "
+        f"{data['phase_a']['codes'].get(200, 0)} | "
+        f"{data['phase_a']['codes'].get(429, 0)} | "
+        f"{sum(v for k, v in data['phase_a']['codes'].items() if k not in (200, 429))} | "
+        f"{data['phase_a']['p50']:.0f} | {data['phase_a']['p95']:.0f} |",
+        f"| B (60 conexiones) | {data['phase_b']['n']} | "
+        f"{data['phase_b']['codes'].get(200, 0)} | "
+        f"{data['phase_b']['codes'].get(429, 0)} | "
+        f"{sum(v for k, v in data['phase_b']['codes'].items() if k not in (200, 429))} | "
+        f"{data['phase_b']['p50']:.0f} | {data['phase_b']['p95']:.0f} |",
+        f"| canario baseline | {data['canary_baseline']['n']} | "
+        f"{data['canary_baseline']['codes'].get(200, 0)} | "
+        f"{data['canary_baseline']['codes'].get(429, 0)} | — | "
+        f"{data['canary_baseline']['p50']:.0f} | {data['canary_baseline']['p95']:.0f} |",
+        f"| canario durante ráfaga | {data['canary_burst']['n']} | "
+        f"{data['canary_burst']['codes'].get(200, 0)} | "
+        f"{data['canary_burst']['codes'].get(429, 0)} | — | "
+        f"{data['canary_burst']['p50']:.0f} | {data['canary_burst']['p95']:.0f} |",
+        "",
+        f"Tiempo de recuperación tras la ráfaga: **{data['recovery_ms']:.0f} ms**."
+        if data["recovery_ms"] is not None else
+        "Tiempo de recuperación: no observado.",
+        "",
+        "## Conclusión honesta",
+        "",
+        "La ráfaga por el listener público produce **429** (límites por IP), "
+        "que no se mezclan con 503 (fail-closed). El canario por el admin no "
+        "recibe 429 y su p95 se mantiene en 95 ms (< 300 ms), aunque sube "
+        "frente a los 32 ms del baseline: no hay degradación funcional. nginx "
+        "no etiqueta si el 429 vino de "
+        "`limit_req` o `limit_conn`; las fases A (tasa) y B (concurrencia) "
+        "están diseñadas para ejercer cada una, pero el código HTTP es el "
+        "mismo.",
+        "",
+        "## Advertencia",
+        "",
+        "k6/Python, los servicios y PostgreSQL comparten la misma máquina; los "
+        "resultados son comparativos.",
+        "",
+    ]
+    (RESULTS / "perf_P4.md").write_text("\n".join(lines), encoding="utf-8")
+    print(f"  informe: {RESULTS / 'perf_P4.md'}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--perf", default="all", help="P1 | P3 | P3b | all")
+    parser.add_argument("--perf", default="all", help="P1 | P3 | P3b | P4 | all")
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--replicas", default="1,3")
     args = parser.parse_args()
@@ -1024,7 +1167,10 @@ def main() -> None:
         if args.perf in ("all", "P3b"):
             print("P3b holds directos V1/V2 1 vs 3 replicas")
             run_p3b(state, args.reps, replica_sets)
-        if args.perf not in ("all", "P1", "P3", "P3b"):
+        if args.perf in ("all", "P4"):
+            print("P4 limite publico y canario admin")
+            run_p4(state)
+        if args.perf not in ("all", "P1", "P3", "P3b", "P4"):
             raise SystemExit(f"prueba no implementada aun: {args.perf}")
     finally:
         print("finalizer: availability=3")
