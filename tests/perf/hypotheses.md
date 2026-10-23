@@ -18,3 +18,14 @@ el informe de cada prueba dice si se cumplieron.
 - Calentamiento 20 s; medición ≥ 60 s; 3 repeticiones; mediana y rango.
 - Serie **ruidosa** si CV > 15 %.
 - k6, servicios y PostgreSQL comparten máquina: resultados **comparativos**, no absolutos.
+
+## P3b ? contenci?n aislada de `availability` (F4c)
+
+Fecha: 2026-10-23 ? Commit: rama `feat/f4c-carga-cierre` (antes de medir)
+
+| Hip?tesis | Por qu? |
+|---|---|
+| **V1** (misma habitaci?n/noches, K=20, 200 holds directos) tendr? **p95 mayor** que **V2** (50 habitaciones, 1 unidad cada una). | En V1 los 200 UPDATE compiten por la misma fila de `inventory`; en V2 se reparten entre 50 filas. |
+| **N=3 no mejora V1**: el rps/tiempo de V1 con 3 r?plicas ser? similar al de 1. | La serializaci?n es por fila en PostgreSQL, no por proceso de `availability`; m?s r?plicas no eliminan el lock. |
+| **V2 mejora con N=3** frente a N=1 (m?s paralelismo real entre filas/conexiones). | Sin una fila caliente, el trabajo se reparte entre r?plicas y conexiones. |
+| Habr? **esperas de lock** (`wait_event_type='Lock'`) en V1 y pr?cticamente ninguna en V2; **cero deadlocks** y **cero 503 por lock timeout** (con `lock_timeout=2s`). | Es la comprobaci?n directa de la contenci?n; `lock_timeout` evita esperas infinitas. |
