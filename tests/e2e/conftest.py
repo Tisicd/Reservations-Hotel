@@ -24,6 +24,7 @@ INVENTORY_URL = os.getenv("INVENTORY_URL", f"{ADMIN_URL}/availability")
 PAYMENT_URL = os.getenv("PAYMENT_URL", f"{ADMIN_URL}/payment")
 CUSTOMER_URL = os.getenv("CUSTOMER_URL", PUBLIC_URL)
 HOTEL_URL = os.getenv("HOTEL_URL", PUBLIC_URL)
+HOTEL_ADMIN_URL = os.getenv("HOTEL_ADMIN_URL", f"{ADMIN_URL}/hotel")
 
 
 class Stack:
@@ -38,6 +39,17 @@ class Stack:
     def _json(self, response: httpx.Response) -> dict:
         response.raise_for_status()
         return response.json()
+
+    def ensure_room(self) -> None:
+        """Habitación dedicada por ejecución: no colisiona con corridas previas."""
+        room_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"e2e:{self.run_id}:room"))
+        response = self.client.post(
+            f"{HOTEL_ADMIN_URL}/hotels/{self.hotel['id']}/rooms",
+            json={"id": room_id, "name": f"E2E {self.run_id}", "capacity": 2,
+                  "price_per_night_cents": 5000, "currency": "USD"},
+        )
+        response.raise_for_status()
+        self.room = response.json()
 
     def available(self, day, admin: bool = False) -> int:
         base = AVAILABILITY_ADMIN_URL if admin else AVAILABILITY_URL
@@ -76,8 +88,10 @@ class Stack:
         return response.json()
 
     def create_reservation(
-        self, key: str, day, customer_id: str, simulate: str = "ok", **kwargs
+        self, key: str, day, customer_id: str, simulate: str = "ok",
+        admin: bool = False, **kwargs
     ) -> httpx.Response:
+        base = RESERVATION_ADMIN_URL if admin else RESERVATION_URL
         body = {
             "customer_id": customer_id,
             "hotel_id": kwargs.get("hotel_id", self.hotel["id"]),
@@ -87,7 +101,7 @@ class Stack:
             "payment": {"method": "card", "token": "tok_demo", "simulate": simulate},
         }
         return self.client.post(
-            f"{RESERVATION_URL}/reservations",
+            f"{base}/reservations",
             json=body,
             headers={"Idempotency-Key": key, "X-Request-ID": f"e2e-{key}"},
         )
@@ -166,7 +180,9 @@ def manifest() -> dict:
 @pytest.fixture(scope="session")
 def stack(manifest) -> Stack:
     with httpx.Client(timeout=40) as client:
-        yield Stack(manifest, client)
+        stack = Stack(manifest, client)
+        stack.ensure_room()
+        yield stack
 
 
 @pytest.fixture()

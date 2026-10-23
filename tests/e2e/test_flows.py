@@ -106,13 +106,14 @@ def test_04_carrera_por_la_ultima_unidad(stack, race_customers, invariants):
     for rep in range(10):
         day = _today(35 + rep)
         stack.put_inventory(day, 1)
-        assert stack.available(day) == 1
+        assert stack.available(day, admin=True) == 1
 
         def race(index):
             return stack.create_reservation(
                 f"e2e-{stack.run_id}-race-{rep}-{index}",
                 day,
                 race_customers[index]["id"],
+                admin=True,
             )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
