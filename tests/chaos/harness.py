@@ -2155,11 +2155,12 @@ def run_scenario_E3(mode: str, repeat: int,
         raise RuntimeError(
             "E3 requiere CHAOS_ALLOW_VOLUME_DELETE=1 y solo borra el volumen "
             "del proyecto")
+    project = os.getenv("COMPOSE_PROJECT_NAME", "reservas-platform")
     volumes = [
         v for v in _run(["docker", "volume", "ls", "--filter",
-                         "label=com.docker.compose.project=reservas-platform",
+                         f"label=com.docker.compose.project={project}",
                          "--filter", "name=pgdata", "-q"]).stdout.split()
-        if v.startswith("reservas-platform_") and "pgdata" in v
+        if v.startswith(f"{project}_") and "pgdata" in v
     ]
     if len(volumes) != 1:
         raise RuntimeError(f"volumen del proyecto ambiguo: {volumes}")
@@ -2167,8 +2168,8 @@ def run_scenario_E3(mode: str, repeat: int,
     label = _run(["docker", "volume", "inspect", volume, "--format",
                   '{{ index .Labels "com.docker.compose.project" }}']
                  ).stdout.strip()
-    if label != "reservas-platform":
-        raise RuntimeError(f"volumen {volume} no pertenece al proyecto")
+    if label != project:
+        raise RuntimeError(f"volumen {volume} no pertenece al proyecto {project}")
 
     seed = json.loads(SEED_PATH.read_text(encoding="utf-8"))
     run_id = uuid.uuid4().hex[:8]

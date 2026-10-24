@@ -9,7 +9,9 @@ import subprocess
 import sys
 
 PROJECT = "reservas-platform"
-COMPOSE_LABEL = f"com.docker.compose.project={PROJECT}"
+# Etiqueta del producto (la fija el Dockerfile y no depende del proyecto
+# Compose, para que `make images` funcione tambien en una copia de ensayo).
+PRODUCT_LABEL = f"com.reservas.project={PROJECT}"
 SERVICES = ["customer", "hotel", "availability", "payment", "reservation", "notification"]
 
 
@@ -39,7 +41,7 @@ def table() -> int:
     result = docker(
         "images",
         "--filter",
-        f"label={COMPOSE_LABEL}",
+        f"label={PRODUCT_LABEL}",
         "--format",
         "{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}\t{{.CreatedSince}}",
     )
@@ -52,7 +54,7 @@ def table() -> int:
         "--filter",
         "dangling=true",
         "--filter",
-        f"label={COMPOSE_LABEL}",
+        f"label={PRODUCT_LABEL}",
         "--format",
         "{{.ID}} {{.Size}}",
     ).stdout.splitlines()
