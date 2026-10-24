@@ -29,7 +29,8 @@ make smoke                # frontend + cabeceras + rutas internas
 
 - `make up` genera los secretos (`secrets/*.txt`) si faltan.
 - El **primer arranque en frío** tarda más (creación de BDs, migraciones y
-  healthchecks); el tiempo medido está en
+  healthchecks). En el ensayo (con caché de Docker) `build + up + seed` sumó
+  **41,3 s** (3,3 + 21,5 + 16,5); sin caché/venv será mayor. Ver
   `docs/resultados/ensayo-desde-cero.md`.
 - URLs: frontend `http://127.0.0.1:8088/`; admin
   `http://127.0.0.1:8081/svc/...`; PostgreSQL dev en `127.0.0.1:5433`.
@@ -132,6 +133,8 @@ con la misma clave.
 | Variables faltantes | `make check-docs` y `docs/variables.md`. |
 | Build falla al instalar pip (SSL) | Proxy TLS local: configurar proxy/certs de Docker Desktop; no es un problema del repo/CI. |
 | Todo corrupto en dev | `make clean-all && make build && make up && make seed` (borra solo el proyecto). |
+| `up-prod` responde 404 en `127.0.0.1:8080` | Otro proceso ocupa el 8080 IPv4 (p. ej. un `httpd` ajeno). El gateway responde dentro del contenedor y por IPv6 (`http://[::1]:8080/healthz`). No mates procesos ajenos. |
+| Copia paralela comparte volúmenes | `compose.yaml` fija `name: reservas-platform`; exporta `COMPOSE_PROJECT_NAME=<otro>` en la copia (necesario para aislar E3). |
 
 ## 7. Estructura del repositorio
 

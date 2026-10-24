@@ -1,0 +1,307 @@
+clone=C:\Users\David\AppData\Local\Temp\opencode\f5-ensayo
+started=2026-10-23T22:33:22.1336175-05:00
+nota: IPv4 8080 esta ocupado por un httpd externo; el chequeo prod usa IPv6/contenedor.
+### pre-clean-all
+duration_s=4,7 exit=0
+ Container f5-ensayo-postgres-1  Stopped
+ Container f5-ensayo-postgres-1  Removing
+ Container f5-ensayo-postgres-1  Removed
+ Volume f5-ensayo_pgdata  Removing
+ Network f5-ensayo_edge-net  Removing
+ Network f5-ensayo_backend-net  Removing
+ Network f5-ensayo_data-net  Removing
+ Volume f5-ensayo_pgdata  Removed
+ Network f5-ensayo_backend-net  Removed
+ Network f5-ensayo_data-net  Removed
+ Network f5-ensayo_edge-net  Removed
+python -c "import pathlib; pathlib.Path('secrets/seed.json').unlink(missing_ok=True)"
+
+### env
+duration_s=0,0 exit=0
+
+### build
+duration_s=3,3 exit=0
+
+#71 [notification] resolving provenance for metadata file
+#71 DONE 0.0s
+
+#72 [hotel] resolving provenance for metadata file
+#72 DONE 0.0s
+ customer:local  Built
+ hotel:local  Built
+ notification:local  Built
+ reservation:local  Built
+ payment:local  Built
+ availability:local  Built
+
+### up
+duration_s=21,5 exit=0
+ Container f5-ensayo-payment-migrate-1  Exited
+ Container f5-ensayo-payment-worker-1  Healthy
+ Container f5-ensayo-reservation-1  Healthy
+ Container f5-ensayo-reservation-migrate-1  Exited
+ Container f5-ensayo-hotel-1  Healthy
+ Container f5-ensayo-notification-1  Healthy
+ Container f5-ensayo-availability-migrate-1  Exited
+ Container f5-ensayo-customer-migrate-1  Exited
+ Container f5-ensayo-availability-1  Healthy
+ Container f5-ensayo-availability-3  Healthy
+ Container f5-ensayo-availability-2  Healthy
+ Container f5-ensayo-gateway-1  Healthy
+
+### project-check
+duration_s=0,1 exit=0
+f5-ensayo-gateway-1
+f5-ensayo-notification-worker-1
+f5-ensayo-availability-1
+f5-ensayo-notification-1
+
+### seed
+duration_s=16,5 exit=0
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -q --upgrade pip
+.venv/Scripts/python.exe -m pip install -q -r tests/requirements.txt
+.venv/Scripts/python.exe scripts/seed.py
+sembrando hoteles e inventario
+  hotel Hotel Quito Centro (Quito): 5 habitaciones
+  hotel Hotel Guayaquil Malec¾n (Guayaquil): 5 habitaciones
+  hotel Hotel Cuenca Hist¾rico (Cuenca): 5 habitaciones
+sembrando clientes
+  cliente demo1@example.com
+  cliente demo2@example.com
+manifiesto escrito en C:\Users\David\AppData\Local\Temp\opencode\f5-ensayo\secrets\seed.json
+
+### test
+duration_s=210,8 exit=0
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 11 passed, 1 warning in 1.26s ========================
+.venv/Scripts/python.exe -m pytest tests/invariants
+============================= test session starts =============================
+platform win32 -- Python 3.13.3, pytest-8.3.4, pluggy-1.7.0
+rootdir: C:\Users\David\AppData\Local\Temp\opencode\f5-ensayo
+plugins: anyio-4.15.1
+collected 18 items
+
+tests\invariants\test_checker.py ..................                      [100%]
+
+============================= 18 passed in 3.40s ==============================
+
+### e2e
+duration_s=63,0 exit=0
+.venv/Scripts/python.exe scripts/seed.py
+sembrando hoteles e inventario
+  hotel Hotel Quito Centro (Quito): 5 habitaciones
+  hotel Hotel Guayaquil Malec¾n (Guayaquil): 5 habitaciones
+  hotel Hotel Cuenca Hist¾rico (Cuenca): 5 habitaciones
+sembrando clientes
+  cliente demo1@example.com
+  cliente demo2@example.com
+manifiesto escrito en C:\Users\David\AppData\Local\Temp\opencode\f5-ensayo\secrets\seed.json
+.venv/Scripts/python.exe -m pytest tests/e2e -q
+...........                                                              [100%]
+11 passed in 26.13s
+
+### smoke
+duration_s=30,1 exit=0
+  OK  X-Frame-Options DENY
+  OK  Referrer-Policy
+  OK  Cache-Control no-cache
+  OK  sin estilos inline
+  OK  sin scripts inline
+  OK  GET /api/hotels => 200 (listener publico)
+  OK  GET /svc/customer/health no expuesto
+
+smoke OK
+.venv/Scripts/python.exe -m pytest tests/infra/test_gateway.py -q
+...                                                                      [100%]
+3 passed in 13.09s
+
+### invariants
+duration_s=5,8 exit=0
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -q --upgrade pip
+.venv/Scripts/python.exe -m pip install -q -r tests/requirements.txt
+.venv/Scripts/python.exe tests/invariants/checker.py --grace 60
+OK: 0 violaciones
+
+### check-docs
+duration_s=5,1 exit=0
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -q --upgrade pip
+.venv/Scripts/python.exe -m pip install -q -r tests/requirements.txt
+.venv/Scripts/python.exe scripts/check_vars.py
+  aviso: documentadas no usadas por servicios/compose (6): ['GATEWAY_ADMIN_URL', 'GATEWAY_DEV_PORT', 'GATEWAY_URL', 'POSTGRES_DEV_PORT', 'POSTGRES_HOST', 'POSTGRES_PASSWORD_FILE']
+check-docs OK: 62 variables usadas, todas documentadas
+
+### chaos
+duration_s=1.036,6 exit=0
+  B/kill9 rep=1 RTO=0.24853600000096776s cumplido=True hard_fail=False
+  C/kill9 rep=1 RTO=7.929676699999618s cumplido=True hard_fail=False
+  C/stop rep=1 RTO=16.93463259999953s cumplido=True hard_fail=False
+  D/stop rep=1 RTO=1.9915203000000474s cumplido=True hard_fail=False
+  E1/stop rep=1 RTO=26.500065500000346s cumplido=True hard_fail=False
+  E1/pkill9 rep=1 RTO=20.73559800000112s cumplido=True hard_fail=False
+  E2/drop rep=1 RTO=Nones cumplido=True hard_fail=False
+  E3/A rep=1 RTO=29.942175099999076s cumplido=True hard_fail=False
+  E3/B rep=1 RTO=30.292879799999355s cumplido=True hard_fail=False
+  E4/restart rep=1 RTO=6.77s cumplido=True hard_fail=False
+  S/stop rep=1 RTO=95.03070664405823s cumplido=False hard_fail=False
+  S2/stop rep=1 RTO=5.84s cumplido=True hard_fail=False
+
+### perf
+duration_s=769,9 exit=0
+  convergencia: 3/3 replicas -> ['172.20.0.12', '172.20.0.13', '172.20.0.5']
+  P3b V1 N=3 rep=1: HELD=20/20 409=180 503=0 p95=1001ms locks=39 deadlocks=0
+  P3b V1 N=3 rep=2: HELD=20/20 409=180 503=0 p95=773ms locks=36 deadlocks=0
+  P3b V1 N=3 rep=3: HELD=20/20 409=180 503=0 p95=1033ms locks=38 deadlocks=0
+  P3b V2 N=3 rep=1: HELD=50/50 409=150 503=0 p95=892ms locks=0 deadlocks=0
+  P3b V2 N=3 rep=2: HELD=50/50 409=150 503=0 p95=803ms locks=1 deadlocks=0
+  P3b V2 N=3 rep=3: HELD=50/50 409=150 503=0 p95=907ms locks=0 deadlocks=0
+  informe: C:\Users\David\AppData\Local\Temp\opencode\f5-ensayo\docs\resultados\perf_P3b.md
+P4 limite publico y canario admin
+  informe: C:\Users\David\AppData\Local\Temp\opencode\f5-ensayo\docs\resultados\perf_P4.md
+finalizer: availability=3
+  convergencia: 3/3 replicas -> ['172.20.0.12', '172.20.0.13', '172.20.0.5']
+
+### report
+duration_s=5,8 exit=0
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -q --upgrade pip
+.venv/Scripts/python.exe -m pip install -q -r tests/requirements.txt
+.venv/Scripts/python.exe scripts/report.py
+reporte: C:\Users\David\AppData\Local\Temp\opencode\f5-ensayo\docs\resultados\REPORTE.md
+fallos: C:\Users\David\AppData\Local\Temp\opencode\f5-ensayo\docs\fallos.md
+
+### backup
+duration_s=7,1 exit=0
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -q --upgrade pip
+.venv/Scripts/python.exe -m pip install -q -r tests/requirements.txt
+python scripts/backup.py
+  customer_db: 3794 bytes
+  hotel_db: 5596 bytes
+  availability_db: 52994 bytes
+  payment_db: 177925 bytes
+  reservation_db: 234667 bytes
+  notification_db: 86119 bytes
+backup en C:\Users\David\AppData\Local\Temp\opencode\f5-ensayo\backups\20261024T040940Z
+
+### restore
+duration_s=27,7 exit=0
+  restaurando payment_db como payment...
+  restaurando reservation_db como reservation...
+  restaurando notification_db como notification...
+verificando versiones de migracion (alembic_version)...
+  customer_db: 0001
+  hotel_db: 0001
+  availability_db: 0001
+  payment_db: 0001
+  reservation_db: 0001
+  notification_db: 0001
+levantando servicios...
+restore completado en 22.4 s
+
+### prune
+duration_s=0,2 exit=0
+docker image prune -f --filter "label=com.docker.compose.project=reservas-platform"
+Total reclaimed space: 0B
+docker image prune -f --filter "label=com.reservas.project=reservas-platform"
+Deleted Images:
+deleted: sha256:0cab9dd8f4e4e7faa3609a52d6e7b1a1123f4370145eeffffff96097ed574f34
+deleted: sha256:c32ddff0bf77c7ac73e8c2b9fdd1fd496475fd7cf2a0302c4c9561bcda4c01a3
+deleted: sha256:55b9e49b1aa21339206ec589990117ec4f98ad5db3645d32c6b7ec83aacac4b1
+deleted: sha256:4f72642a18cfee42db82fec69178ca04f6be04f66396e42a73af0e73e4cf64ea
+deleted: sha256:aca15c6045ec4a1fbbfbd03d0ed02b7801382820340de12bb8d6d21dc6647de6
+deleted: sha256:9ee877817db3c776c2a438d4c7e18a1843e9ba69f67495d72b0725379a7fe956
+
+Total reclaimed space: 0B
+
+### images
+duration_s=0,3 exit=0
+python scripts/docker_images.py
+Imagenes del proyecto
+------------------------------------------------------------------------
+hotel:local                  051f0bc5be85        174MB  36 minutes ago
+availability:local           4327cc1b7407        174MB  36 minutes ago
+customer:local               0a909e9a0921        174MB  36 minutes ago
+notification:local           5e40ba13976e        174MB  36 minutes ago
+reservation:local            5d22b1faebbb        176MB  36 minutes ago
+payment:local                1653161dd8c6        174MB  36 minutes ago
+
+Huerfanas (dangling) del proyecto: 0
+
+### down
+duration_s=5,2 exit=0
+ Container f5-ensayo-postgres-1  Stopping
+ Container f5-ensayo-postgres-1  Stopped
+ Container f5-ensayo-postgres-1  Removing
+ Container f5-ensayo-postgres-1  Removed
+ Network f5-ensayo_data-net  Removing
+ Network f5-ensayo_dev-net  Removing
+ Network f5-ensayo_edge-net  Removing
+ Network f5-ensayo_backend-net  Removing
+ Network f5-ensayo_edge-net  Removed
+ Network f5-ensayo_backend-net  Removed
+ Network f5-ensayo_data-net  Removed
+ Network f5-ensayo_dev-net  Removed
+
+### up-prod
+duration_s=21,6 exit=0
+ Container f5-ensayo-availability-migrate-1  Exited
+ Container f5-ensayo-hotel-migrate-1  Exited
+ Container f5-ensayo-availability-worker-1  Healthy
+ Container f5-ensayo-payment-migrate-1  Exited
+ Container f5-ensayo-customer-1  Healthy
+ Container f5-ensayo-payment-1  Healthy
+ Container f5-ensayo-postgres-1  Healthy
+ Container f5-ensayo-payment-worker-1  Healthy
+ Container f5-ensayo-availability-3  Healthy
+ Container f5-ensayo-availability-2  Healthy
+ Container f5-ensayo-availability-1  Healthy
+ Container f5-ensayo-gateway-1  Healthy
+
+### health-prod
+duration_s=0,1 exit=0
+status=ok (IPv6/contenedor; IPv4 8080 ocupado por httpd externo)
+
+### down-prod
+duration_s=4,2 exit=0
+ Container f5-ensayo-reservation-migrate-1  Removing
+ Container f5-ensayo-reservation-migrate-1  Removed
+ Container f5-ensayo-postgres-1  Stopping
+ Container f5-ensayo-postgres-1  Stopped
+ Container f5-ensayo-postgres-1  Removing
+ Container f5-ensayo-postgres-1  Removed
+ Network f5-ensayo_data-net  Removing
+ Network f5-ensayo_edge-net  Removing
+ Network f5-ensayo_backend-net  Removing
+ Network f5-ensayo_edge-net  Removed
+ Network f5-ensayo_data-net  Removed
+ Network f5-ensayo_backend-net  Removed
+
+### clean
+duration_s=0,3 exit=0
+docker compose -f compose.yaml -f compose.dev.yaml down -v
+ Volume f5-ensayo_pgdata  Removing
+ Volume f5-ensayo_pgdata  Removed
+
+### clean-all
+duration_s=0,3 exit=0
+docker compose -f compose.yaml -f compose.dev.yaml down -v
+python -c "import pathlib; pathlib.Path('secrets/seed.json').unlink(missing_ok=True)"
+
+### images-final
+duration_s=0,2 exit=0
+python scripts/docker_images.py
+Imagenes del proyecto
+------------------------------------------------------------------------
+customer:local               0a909e9a0921        174MB  37 minutes ago
+notification:local           5e40ba13976e        174MB  37 minutes ago
+availability:local           4327cc1b7407        174MB  37 minutes ago
+payment:local                1653161dd8c6        174MB  37 minutes ago
+reservation:local            5d22b1faebbb        176MB  37 minutes ago
+hotel:local                  051f0bc5be85        174MB  37 minutes ago
+
+Huerfanas (dangling) del proyecto: 0
+
+finished=2026-10-23T23:10:42.7368385-05:00

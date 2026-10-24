@@ -10,8 +10,8 @@
 | F1 Flujo crítico | ✔ | availability, payment, reservation, customer, hotel, chequeador de invariantes, e2e. Tag `f1` |
 | F2 Integración | ✔ consolidada | notification + outbox/relay, gateway, availability x3. G1 formal: ver `fases/F2-integracion.md` |
 | F3 Frontend mínimo | **Implementado** (2026-10-23) | `gateway/html/` + `make smoke` + `tests/e2e/test_public_flow.py`; guion en `manual.md` |
-| F4 Fallos, carga y reportes | **En curso** | F4a (caos A–D, E2, S): `fases/F4-fallos-carga-reportes.md`, `docs/fallos.md`, `docs/resultados/chaos_*.md` |
-| F5 Entrega (informe, manual, costos) | Pendiente (la documentación corre en paralelo) | `fases/F5-entrega.md` |
+| F4 Fallos, carga y reportes | **Cerrado** (F4a/b/c) | Caos A–S2 y carga P1/P3/P3b/P4: `resultados/REPORTE.md`, `fallos.md`; P2/P5 recortados |
+| F5 Entrega (informe, manual, costos) | **Documentación y ensayo** (2026-10-23); pendientes persona 1/3/10/14 | `manual.md`, `seguridad.md`, `produccion.md`, `swarm.md`, `informe/INFORME.md`, `resultados/ensayo-desde-cero.md` |
 | F6 Defensa (28–30 oct, por confirmar) | Pendiente | `fases/F6-defensa.md` |
 
 **Calendario:** se va ~1 día por delante del plan. Propuesta: F3 mar 20–mié 21 · F4 mié 21–vie 23 · F5 vie 23–sáb 24 · **entrega dom 25** · F6 26–29. El colchón sobrante se usa en calidad (F4), no en alcance nuevo.

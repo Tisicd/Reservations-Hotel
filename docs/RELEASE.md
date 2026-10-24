@@ -13,6 +13,13 @@
 - **No** incluye: `secrets/`, `backups/`, `.env`, `.venv/` (se generan o son
   locales). Ver `.gitignore`.
 
+## Ensayo desde cero
+
+Pasada limpia en 37 min 20 s (clon nuevo, proyecto `f5-ensayo`, stack
+principal detenido): ver
+[`resultados/ensayo-desde-cero.md`](resultados/ensayo-desde-cero.md) y el log
+completo [`resultados/ensayo-desde-cero.log`](resultados/ensayo-desde-cero.log).
+
 ## Cómo reproducir
 
 ```bash
@@ -29,7 +36,8 @@ duraciones está en [`resultados/ensayo-desde-cero.md`](resultados/ensayo-desde-
 
 ## Estado verificado
 
-- Última rama de entrega: `docs/f5-entrega` (CI por ejecutar al cerrar).
+- `main` (`d8db913`, F4c + F3) con CI verde; rama de entrega
+  `docs/f5-entrega` (CI al cerrar).
 - `make invariants` ⇒ **0**; `make images` ⇒ mismas 6 imágenes del producto,
   **0 huérfanas** (`resultados/REPORTE.md`, `imagenes.md`).
 - Escaneos: trivy **47 HIGH/0 CRITICAL** por imagen; gitleaks **0** en 64
@@ -67,5 +75,5 @@ duraciones está en [`resultados/ensayo-desde-cero.md`](resultados/ensayo-desde-
   costos con precios vigentes y conclusión).
 - Capturas de la UI en `docs/resultados/ui/` (5 momentos descritos en
   `manual.md`).
-- Decidir el tag final y publicar el zip (Hito C deja el tag propuesto
-  `v1.0-entrega` y el `git archive` verificado con gitleaks).
+- Tag propuesto `v1.0-entrega` y `git archive` verificado con gitleaks
+  (sin `secrets/`, `backups/`, `.env` ni `.venv`); la persona decide publicarlo.
