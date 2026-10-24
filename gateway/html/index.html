@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reservas — demo F3</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Reservas</h1>
+    <p>Demo del flujo completo y de los estados de la saga</p>
+  </header>
+
+  <main>
+    <section aria-labelledby="h-buscar">
+      <h2 id="h-buscar">1. Buscar</h2>
+      <div class="grid">
+        <label>Hotel
+          <select id="hotel"></select>
+        </label>
+        <label>Entrada
+          <input id="checkin" type="date">
+        </label>
+        <label>Salida
+          <input id="checkout" type="date">
+        </label>
+      </div>
+      <button id="buscarBtn" type="button">Buscar disponibilidad</button>
+    </section>
+
+    <section aria-labelledby="h-cliente">
+      <h2 id="h-cliente">2. Cliente</h2>
+      <div class="grid">
+        <label>Cliente demo
+          <select id="customer"></select>
+        </label>
+      </div>
+      <form id="customerForm" class="grid">
+        <label>Nombre
+          <input id="cname" type="text" autocomplete="off">
+        </label>
+        <label>Email
+          <input id="cemail" type="email" autocomplete="off">
+        </label>
+        <button type="submit">Crear cliente</button>
+      </form>
+    </section>
+
+    <section aria-labelledby="h-reservar">
+      <h2 id="h-reservar">3. Habitación y pago</h2>
+      <div id="rooms" class="rooms"></div>
+      <div class="grid">
+        <label>Simulación de pago
+          <select id="simulate">
+            <option value="ok">ok</option>
+            <option value="decline">decline</option>
+            <option value="process_then_drop_response">process_then_drop_response</option>
+            <option value="slow">slow</option>
+          </select>
+        </label>
+      </div>
+      <button id="reservarBtn" type="button">Reservar</button>
+    </section>
+
+    <section aria-labelledby="h-resultado">
+      <h2 id="h-resultado">4. Resultado en vivo</h2>
+      <p class="meta">
+        Último HTTP: <code id="lastCode">—</code> ·
+        request_id: <code id="lastRequest">—</code>
+      </p>
+      <div id="alerts" role="alert"></div>
+      <p class="state"><strong id="status">—</strong> <span id="reason"></span></p>
+      <div class="actions">
+        <button id="replayBtn" type="button" disabled>Reenviar con la misma clave</button>
+        <button id="cancelBtn" type="button" disabled>Cancelar</button>
+      </div>
+      <h3>Línea de tiempo</h3>
+      <table id="timeline">
+        <thead><tr><th>Transición</th><th>Motivo</th><th>Hora</th><th>+ s</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <h3>Notificación</h3>
+      <div id="notification" class="notification">—</div>
+    </section>
+  </main>
+</body>
+</html>

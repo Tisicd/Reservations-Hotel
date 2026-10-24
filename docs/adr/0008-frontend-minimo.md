@@ -1,5 +1,5 @@
 # ADR-0008: Frontend mínimo en HTML + JS servido por nginx
-**Estado:** Aceptado · **Fase:** F3
+**Estado:** Implementado (2026-10-23) · **Fase:** F3
 
 ## Contexto
 Swagger prueba APIs, pero una demo visual facilita la defensa. El valor está en mostrar el flujo y los estados, no en el diseño. Plazo: 0,5 día máximo.
@@ -12,3 +12,19 @@ React + TypeScript + Vite: válido, pero añade etapa Node, dependencias y tiemp
 
 ## Consecuencias
 (+) Sin build ni dependencias. (−) Sin componentes ni tipos; aceptable para una pantalla.
+
+## Implementación (F3)
+
+- `gateway/html/` (index, app.js, styles.css) montado **solo lectura** en
+  `/usr/share/nginx/html`; `/` sirve `index.html`.
+- Cabeceras en el listener público: CSP `default-src 'self'`, `nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `no-cache`.
+- Rutas de solo lectura en el público: `/api/hotels`, `/api/rooms` y
+  `/api/availability` rechazan métodos distintos de GET (403); holds, pagos
+  e inventario no tienen ruta pública.
+- Cliente: dos IDs demo de la semilla + alta con `POST /api/customers`.
+- Idempotencia: `Idempotency-Key` UUID v4 (`crypto.randomUUID` o
+  `getRandomValues`); el reenvío con la misma clave muestra
+  `Idempotent-Replayed: true`.
+- Polling de estado/eventos/notificaciones con backoff, ≥ 1 s, máx. 2
+  solicitudes simultáneas y tope de 90 s.

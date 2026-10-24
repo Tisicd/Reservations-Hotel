@@ -140,6 +140,7 @@ e2e: up-dev gateway-refresh seed
 	$(VENV_PY) -m pytest tests/e2e -q
 
 smoke: deps ensure-images gateway-refresh
+	$(VENV_PY) scripts/smoke.py
 	$(VENV_PY) -m pytest tests/infra/test_gateway.py -q
 
 snapshot-customer: deps
