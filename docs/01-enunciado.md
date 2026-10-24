@@ -124,21 +124,25 @@ Debe permitir ejecutar la plataforma como conjunto de microservicios Docker inde
 
 ---
 
-## Checklist de trazabilidad (requisito → evidencia)
+## Anexo de trazabilidad (14 puntos)
 
-| # | Requisito | Evidencia esperada |
-|---|---|---|
-| 1 | Análisis de requerimientos | `docs/01-analisis.md` (procesos, criticidad, clasificación) |
-| 2 | 6 microservicios | carpetas `services/*` |
-| 3 | Red definida por el usuario, exposición mínima | `compose.yaml` (redes) + `docs/arquitectura.md` |
-| 4 | Imágenes optimizadas, multistage | Dockerfiles + `docs/imagenes.md` (tamaños) |
-| 5 | Config externa | `.env.example` + tabla de variables por servicio |
-| 6 | Persistencia + demo de borrado | volúmenes + test automatizado escenario D |
-| 7 | Múltiples instancias + balanceo | `availability-service` x N tras balanceador |
-| 8 | HEALTHCHECK | healthchecks en Dockerfile/compose + test servicio no saludable |
-| 9 | Escenarios A-D con 5 preguntas c/u | tests automatizados + `docs/fallos.md` |
-| 10 | Compose + análisis Swarm | `compose.yaml` + `docs/swarm.md` |
-| 11 | Pruebas de rendimiento 1 vs N | script de carga + tabla de resultados |
-| 12 | Seguridad | `docs/seguridad.md` + secrets/env |
-| 13 | Documentación | carpeta `docs/` + README |
-| 14 | Entregable funcional | `docker compose up` levanta todo |
+| # | Requisito | Evidencia concreta | ✔ |
+|---|---|---|---|
+| 1 | Análisis de requerimientos | `docs/fases/F0-negocio-y-resiliencia.md` (procesos, invariantes I1–I7, criticidad), `docs/04-arquitectura.md`; no existe `01-analisis.md` (se usó F0) | ✔ |
+| 2 | 6 microservicios | `services/{customer,hotel,availability,reservation,payment,notification}/`, `compose.yaml`, `docs/04-arquitectura.md` | ✔ |
+| 3 | Red Docker definida por el usuario y exposición mínima | `compose.yaml` (`edge-net`, `backend-net`/`data-net` internas), `docs/seguridad.md`; `tests/infra/test_gateway.py`, `tests/e2e/test_public_flow.py` | ✔ |
+| 4 | Imágenes optimizadas y multistage | Dockerfiles de `services/*`; `docs/imagenes.md` (174–176 MB, monoetapa 198 MB, contexto 1,73 vs 60,76 kB) | ✔ |
+| 5 | Configuración externa y variables documentadas | `.env.example`, `docs/variables.md`, `scripts/check_vars.py`, `make check-docs` (62 usadas, todas documentadas) | ✔ |
+| 6 | Persistencia y demostración de borrado/recreación | `compose.yaml` volumen `pgdata`; `chaos_D_stop_1.md` (recreación real), `chaos_E1_*.md`, `chaos_E3_*.md`; `proceso/backup-restore.md`; ADR-0002 | ✔ |
+| 7 | Múltiples instancias y balanceo | `availability` x3 (`perf_P1.md`, `perf_P1_analisis.md`), `chaos_B_kill_*.md`; ADR-0007 (DNS/upstream) | ✔ |
+| 8 | HEALTHCHECK y servicio no saludable | Dockerfiles/compose (`interval=5s timeout=5s retries=12`), `chaos_S_stop_1.md` (TTD 93,21 s), `chaos_S2_stop_1.md` | ✔ |
+| 9 | Escenarios A–D con las 5 preguntas | `chaos_A_api_*.md`, `chaos_A_worker_*.md`, `chaos_B_*.md`, `chaos_C_*.md`, `chaos_D_stop_1.md`, `docs/fallos.md` | ✔ |
+| 10 | Docker Compose y análisis de Swarm | `compose.yaml`, `compose.dev.yaml`, `docs/swarm.md` (no implementado; análisis y fragmento ilustrativo) | ✔ |
+| 11 | Pruebas de rendimiento 1 vs N y cuellos | `perf_P1.md`/`perf_P1_analisis.md` (189→394 rps, 2,09×), `perf_P3.md`, `perf_P3b.md`, `perf_P4.md`, `REPORTE.md` | ✔ |
+| 12 | Análisis de seguridad | `docs/seguridad.md`; `tests/e2e/test_public_flow.py` (rutas internas 403/404); `perf_P4.md` (141/45 429); `resultados/seguridad-trivy.txt` (47 HIGH/0 CRITICAL), gitleaks 0 | ✔ |
+| 13 | Documentación de la solución | `docs/` (arquitectura, ADR, contratos, manual, seguridad, producción, swarm, imágenes, variables), `README.md`, `docs/informe/INFORME.md` | ✔ |
+| 14 | Entregable funcional | `make build && make up && make seed`, `make e2e` (11 pruebas), `make smoke`, `make invariants`; ensayo desde cero en `docs/resultados/ensayo-desde-cero.md` | ✔ |
+
+**Nota:** la columna ✔ significa que existe el archivo **y** se ejecutó el
+comando o prueba que lo respalda en este repositorio (local/CI). Lo que no se
+pudo ejecutar se declara en `RELEASE.md` y en el propio informe.
