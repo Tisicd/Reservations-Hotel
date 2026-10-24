@@ -11,9 +11,10 @@ Cada ADR es breve: **contexto → decisión → alternativas → consecuencias**
 | [0005](0005-availability-atomica-e-idempotente.md) | Inventario con operaciones atómicas e idempotentes | Aceptado |
 | [0006](0006-payment-adapter-y-estados-explicitos.md) | Payment: Adapter de proveedor y estados explícitos | Aceptado |
 | [0007](0007-gateway-y-exposicion.md) | Gateway nginx: exposición pública vs. administrativa | Aceptado |
-| [0008](0008-frontend-minimo.md) | Frontend mínimo en HTML + JS servido por nginx | Aceptado |
+| [0008](0008-frontend-minimo.md) | Frontend mínimo en HTML + JS servido por nginx | Implementado |
 | [0009](0009-stack-y-dependencias.md) | Stack y dependencias justificadas | Aceptado |
 | [0010](0010-fuente-de-verdad-datos-maestros.md) | Fuente de verdad de datos maestros y validación de hotel/habitación | Aceptado |
+| [0011](0011-g1-rabbitmq-y-enmiendas.md) | G1: sin RabbitMQ; enmiendas de CANCELLING/429/admin | Aceptado |
 
 Estados: *Propuesto → Aceptado → (Reemplazado por ADR-xxxx)*. ADR 0001-0010 **aceptados** al cerrar la compuerta G0 (2026-10-19).
 

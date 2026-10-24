@@ -5,6 +5,12 @@ archivo `.env` (ignorado por Git) contiene los valores reales; `.env.example`
 los nombres con valores de ejemplo. `docs/costos/registro.md` y esta tabla se
 actualizan cuando se añade o cambia una variable.
 
+`make check-docs` ejecuta `scripts/check_vars.py`: compara las variables
+leídas por los servicios (`services/*/app/**/*.py`) y las de
+`compose.yaml`/`compose.dev.yaml` con esta tabla y **falla** si alguna no está
+documentada. En la última ejecución: 62 variables usadas, todas documentadas;
+las 6 restantes son de scripts/infra (`GATEWAY_*`, `POSTGRES_*`).
+
 ## PostgreSQL (compose)
 
 | Variable | Servicio | Obligatoria | Descripción |

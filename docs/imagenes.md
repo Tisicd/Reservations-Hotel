@@ -85,3 +85,66 @@ dependencias (pip install) aparece como `CACHED` en la salida.
   imágenes: siguen siendo las 6 `:local` + `postgres:16` + `nginx:1.27.4-alpine`.
 - La imagen de carga `grafana/k6` (Parte 2) se ejecuta con `docker run --rm` y
   se documenta aparte; no entra en las imágenes del producto.
+
+## Mediciones (2026-10-23)
+
+### Imágenes del producto
+
+| Imagen | Tag | ID | Tamaño | Shared Size | Unique Size |
+|---|---|---|---|---|---|
+| availability | `local` | `63f349a175b0` | 174 MB | 119.5 MB | 54.65 MB |
+| customer | `local` | `b71d779e133b` | 174 MB | 119.5 MB | 54.59 MB |
+| hotel | `local` | `e557d1b4a5d9` | 174 MB | 119.5 MB | 54.61 MB |
+| payment | `local` | `847f1141a291` | 174 MB | 119.5 MB | 54.66 MB |
+| notification | `local` | `89aa9b381f3b` | 174 MB | 119.5 MB | 54.62 MB |
+| reservation | `local` | `123889a53a16` | 176 MB | 119.4 MB | 56.29 MB |
+| postgres | `16` | `44cbf408c541` | **451 MB** | 78.63 MB | 372.4 MB |
+| nginx | `1.27.4-alpine` | `1ff4bb4faebc` | 47.9 MB | 0 B | 47.9 MB |
+| python (base) | `3.12-slim` | `df18428df8a0` | 119 MB | 119.4 MB | 0 B |
+
+Fuente: `docker images` y `docker system df -v` (Shared/Unique). Las 6
+imágenes comparten la base `python:3.12-slim` (119 MB) y las capas de
+dependencias; por eso el tamaño por servicio es 174–176 MB aunque el
+incremento único respecto de la base sea ~55 MB.
+
+Imágenes **fuera del producto** usadas para pruebas/escaneo:
+`grafana/k6:0.54.0` (72 MB), `aquasec/trivy:0.58.1` (152 MB) y
+`zricethezav/gitleaks:v8.24.0` (45.3 MB). No entran en `make images` ni en
+`compose.yaml`.
+
+### Multistage vs monoetapa (customer)
+
+Medición única con un `Dockerfile.mono` **temporal, no commiteado** (misma
+base y mismas dependencias, una sola etapa sin `COPY --from`):
+
+| Variante | Tamaño |
+|---|---|
+| Multistage actual | **174 MB** |
+| Monoetapa temporal | **198 MB** |
+
+La monoetapa es **24 MB (+13,8 %)** más grande: conserva la caché de pip y
+los artefactos de build en la misma imagen, mientras que la multistage copia
+solo `/install` a la etapa runtime y descarta el *builder*. El build temporal
+requirió `--trusted-host` por el proxy TLS local; la medición de tamaño no se
+ve afectada. El Dockerfile temporal se eliminó y la imagen `customer:mono-test`
+se borró.
+
+### Contexto de build con y sin `.dockerignore`
+
+Método: `Dockerfile.ctx` temporal (`FROM scratch` + `COPY . /ctx`) y BuildKit
+(`transferring context`) con y sin `.dockerignore` del servicio `customer`:
+
+| Contexto | Tamaño |
+|---|---|
+| Con `.dockerignore` | **1,73 kB** |
+| Sin `.dockerignore` | **60,76 kB** |
+
+El `.dockerignore` reduce el contexto **~35×** al excluir `tests/`, caches
+(`__pycache__`, `.pytest_cache`, `.ruff_cache`) y metadatos. Los archivos
+temporales se borraron; no hay cambios commiteados.
+
+### CVEs
+
+El escaneo de las 6 imágenes está en `docs/resultados/seguridad-trivy.txt`
+(47 HIGH / 0 CRITICAL por imagen; 44 de la base Debian y 3 de `starlette`).
+Ver `docs/seguridad.md` para el detalle y los pendientes.

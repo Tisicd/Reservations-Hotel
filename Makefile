@@ -143,6 +143,9 @@ smoke: deps ensure-images gateway-refresh
 	$(VENV_PY) scripts/smoke.py
 	$(VENV_PY) -m pytest tests/infra/test_gateway.py -q
 
+check-docs: deps
+	$(VENV_PY) scripts/check_vars.py
+
 snapshot-customer: deps
 	cd services/customer && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py
 
