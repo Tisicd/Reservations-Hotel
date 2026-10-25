@@ -5,6 +5,7 @@ import sqlalchemy as sa
 from fastapi import FastAPI, Request
 
 from .api import router
+from .auth_service import AuthService
 from .config import Settings, load_settings
 from .errors import register_error_handlers
 from .logging import configure_logging, new_request_id, request_id_var
@@ -25,14 +26,21 @@ def make_engine(settings: Settings) -> sa.Engine:
     )
 
 
-def create_app(service: CustomerService | None = None) -> FastAPI:
+def create_app(service: CustomerService | None = None,
+               auth: AuthService | None = None) -> FastAPI:
+    settings = None
     if service is None:
         settings = load_settings()
         configure_logging(settings.log_level)
         service = CustomerService(CustomerStore(make_engine(settings)))
+    if auth is None:
+        if settings is None:
+            settings = load_settings()
+        auth = AuthService(service.store, settings)
 
     app = FastAPI(title="customer-service", version="1.0.0")
     app.state.service = service
+    app.state.auth = auth
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):

@@ -30,6 +30,12 @@ x-customer-env: &customer-env
   DB_NAME: customer_db
   DB_USER: customer
   DB_PASSWORD_FILE: /run/secrets/customer_db_password
+  SCRYPT_N: "32768"
+  SCRYPT_R: "8"
+  SCRYPT_P: "1"
+  AUTH_SESSION_TTL_SECONDS: "28800"
+  LOGIN_MAX_FAILURES: "5"
+  LOGIN_LOCK_SECONDS: "300"
 
 x-hotel-env: &hotel-env
   DB_HOST: postgres

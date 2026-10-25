@@ -36,6 +36,7 @@ CUSTOMERS = [
     ("Cliente Demo Uno", "demo1@example.com"),
     ("Cliente Demo Dos", "demo2@example.com"),
 ]
+DEMO_ACCOUNT = ("Cuenta Demo UCE", "demo@reservas-uce.test")
 
 
 def _id(kind: str, key: str) -> str:
@@ -152,6 +153,47 @@ def _seed_customers(previous: dict) -> list[dict]:
     return customers
 
 
+def _demo_password() -> str | None:
+    value = os.getenv("DEMO_USER_PASSWORD")
+    if value:
+        return value
+    env_file = ROOT / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("DEMO_USER_PASSWORD="):
+                return line.split("=", 1)[1].strip() or None
+    return None
+
+
+def _seed_demo_account() -> dict | None:
+    password = _demo_password()
+    if not password:
+        print("  aviso: DEMO_USER_PASSWORD no definida; cuenta demo omitida")
+        return None
+    name, email = DEMO_ACCOUNT
+    status, payload = _request(
+        "POST", f"{CUSTOMER_URL}/auth/register",
+        {"name": name, "email": email, "password": password},
+    )
+    if status in (200, 201):
+        print(f"  cuenta demo {email}")
+        return {"id": payload["id"], "name": name, "email": email}
+    if status == 409:
+        status, payload = _request(
+            "POST", f"{CUSTOMER_URL}/auth/login",
+            {"email": email, "password": password},
+        )
+        if status == 200:
+            customer = payload["customer"]
+            print(f"  cuenta demo {email} (existente)")
+            return {"id": customer["id"], "name": customer["name"],
+                    "email": customer["email"]}
+        _fail("la cuenta demo existe pero la contrase?a no coincide; "
+              "define DEMO_USER_PASSWORD o ejecuta `make clean-all`")
+    _check(status, (200, 201, 409), f"{CUSTOMER_URL}/auth/register", payload)
+    return None
+
+
 def main() -> None:
     today = dt.date.today()
     previous = _load_previous()
@@ -159,6 +201,7 @@ def main() -> None:
     hotels = _seed_hotels(today)
     print("sembrando clientes")
     customers = _seed_customers(previous)
+    demo_account = _seed_demo_account()
     manifest = {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "inventory": {
@@ -168,6 +211,7 @@ def main() -> None:
         },
         "hotels": hotels,
         "customers": customers,
+        "demo_account": demo_account,
     }
     MANIFEST.parent.mkdir(exist_ok=True)
     MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

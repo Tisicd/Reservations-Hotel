@@ -23,6 +23,16 @@ class DependencyUnavailable(DomainError):
     status_code = 503
 
 
+class InvalidCredentials(DomainError):
+    code = "INVALID_CREDENTIALS"
+    status_code = 401
+
+
+class WeakPassword(DomainError):
+    code = "WEAK_PASSWORD"
+    status_code = 422
+
+
 def register_error_handlers(app):
     from fastapi.responses import JSONResponse
 

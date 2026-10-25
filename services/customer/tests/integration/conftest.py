@@ -46,5 +46,5 @@ def store(engine):
     from app.models import CustomerStore
 
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE customers"))
+        conn.execute(text("TRUNCATE sessions, customers"))
     return CustomerStore(engine)

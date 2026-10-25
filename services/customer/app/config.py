@@ -29,6 +29,12 @@ class Settings:
     db_pool_size: int
     db_pool_timeout: int
     log_level: str
+    scrypt_n: int
+    scrypt_r: int
+    scrypt_p: int
+    auth_session_ttl_seconds: int
+    login_max_failures: int
+    login_lock_seconds: int
 
     @property
     def db_url(self) -> str:
@@ -48,4 +54,10 @@ def load_settings() -> Settings:
         db_pool_size=_int("DB_POOL_SIZE", 5),
         db_pool_timeout=_int("DB_POOL_TIMEOUT", 5),
         log_level=_env("LOG_LEVEL", "INFO"),
+        scrypt_n=_int("SCRYPT_N", 32768),
+        scrypt_r=_int("SCRYPT_R", 8),
+        scrypt_p=_int("SCRYPT_P", 1),
+        auth_session_ttl_seconds=_int("AUTH_SESSION_TTL_SECONDS", 8 * 3600),
+        login_max_failures=_int("LOGIN_MAX_FAILURES", 5),
+        login_lock_seconds=_int("LOGIN_LOCK_SECONDS", 300),
     )
