@@ -3,87 +3,47 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Reservas — demo F3</title>
+  <meta name="description" content="Reservas UCE — demo de reserva de alojamiento">
+  <title>Reservas UCE</title>
   <link rel="stylesheet" href="/styles.css">
-  <script src="/app.js" defer></script>
+  <script type="module" src="/app.js"></script>
 </head>
 <body>
-  <header>
-    <h1>Reservas</h1>
-    <p>Demo del flujo completo y de los estados de la saga</p>
+  <a class="skip" href="#app">Saltar al contenido</a>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#/" aria-label="Reservas UCE, inicio">
+        <span class="brand-mark" aria-hidden="true">R</span>
+        <span>Reservas <strong>UCE</strong></span>
+      </a>
+      <nav class="mainnav" aria-label="Principal">
+        <a href="#/" data-nav="explore">Explorar</a>
+        <a href="#/mis-reservas" data-nav="mine">Mis reservas</a>
+      </nav>
+    </div>
   </header>
 
-  <main>
-    <section aria-labelledby="h-buscar">
-      <h2 id="h-buscar">1. Buscar</h2>
-      <div class="grid">
-        <label>Hotel
-          <select id="hotel"></select>
-        </label>
-        <label>Entrada
-          <input id="checkin" type="date">
-        </label>
-        <label>Salida
-          <input id="checkout" type="date">
-        </label>
-      </div>
-      <button id="buscarBtn" type="button">Buscar disponibilidad</button>
-    </section>
+  <div id="flash" class="flash" role="status" aria-live="polite"></div>
+  <div id="live" class="sr-only" aria-live="polite"></div>
 
-    <section aria-labelledby="h-cliente">
-      <h2 id="h-cliente">2. Cliente</h2>
-      <div class="grid">
-        <label>Cliente demo
-          <select id="customer"></select>
-        </label>
-      </div>
-      <form id="customerForm" class="grid">
-        <label>Nombre
-          <input id="cname" type="text" autocomplete="off">
-        </label>
-        <label>Email
-          <input id="cemail" type="email" autocomplete="off">
-        </label>
-        <button type="submit">Crear cliente</button>
-      </form>
-    </section>
+  <main id="app" tabindex="-1"></main>
 
-    <section aria-labelledby="h-reservar">
-      <h2 id="h-reservar">3. Habitación y pago</h2>
-      <div id="rooms" class="rooms"></div>
-      <div class="grid">
-        <label>Simulación de pago
-          <select id="simulate">
-            <option value="ok">ok</option>
-            <option value="decline">decline</option>
-            <option value="process_then_drop_response">process_then_drop_response</option>
-            <option value="slow">slow</option>
-          </select>
-        </label>
-      </div>
-      <button id="reservarBtn" type="button">Reservar</button>
-    </section>
+  <footer class="footer">
+    <div class="footer-inner">
+      <p><strong>Reservas UCE</strong> · demo académica · no uses datos reales.</p>
+      <button id="demo-toggle" class="ghost" type="button" aria-expanded="false" aria-controls="demo-panel">
+        Modo demo técnico
+      </button>
+    </div>
+  </footer>
 
-    <section aria-labelledby="h-resultado">
-      <h2 id="h-resultado">4. Resultado en vivo</h2>
-      <p class="meta">
-        Último HTTP: <code id="lastCode">—</code> ·
-        request_id: <code id="lastRequest">—</code>
-      </p>
-      <div id="alerts" role="alert"></div>
-      <p class="state"><strong id="status">—</strong> <span id="reason"></span></p>
-      <div class="actions">
-        <button id="replayBtn" type="button" disabled>Reenviar con la misma clave</button>
-        <button id="cancelBtn" type="button" disabled>Cancelar</button>
-      </div>
-      <h3>Línea de tiempo</h3>
-      <table id="timeline">
-        <thead><tr><th>Transición</th><th>Motivo</th><th>Hora</th><th>+ s</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <h3>Notificación</h3>
-      <div id="notification" class="notification">—</div>
-    </section>
-  </main>
+  <aside id="demo-panel" class="drawer" aria-label="Modo demo técnico" hidden>
+    <div class="drawer-head">
+      <h2>Modo demo técnico</h2>
+      <button id="demo-close" class="icon-btn" type="button" aria-label="Cerrar panel">×</button>
+    </div>
+    <div id="demo-body" class="drawer-body"></div>
+  </aside>
 </body>
 </html>
