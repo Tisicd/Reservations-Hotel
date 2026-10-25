@@ -24,11 +24,14 @@ ALLOWED = {
     ("GET", "/api/reservations/{id}"),
     ("GET", "/api/reservations/{id}/events"),
     ("GET", "/api/notifications"),
-    ("POST", "/api/customers"),
+    ("POST", "/api/auth/register"),
+    ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/logout"),
+    ("GET", "/api/auth/me"),
     ("POST", "/api/reservations"),
     ("POST", "/api/reservations/{id}/cancel"),
 }
-FORBIDDEN = ("/svc", "/holds", "/payments", "/inventory")
+FORBIDDEN = ("/svc", "/holds", "/payments", "/inventory", "/api/customers")
 
 
 def normalize(raw: str) -> str:
@@ -75,6 +78,10 @@ def main() -> None:
         sys.exit(1)
     print(f"  OK  {len(used)} rutas usadas, todas públicas/permitidas")
 
+    api_js = (ROOT / "gateway" / "html" / "js" / "api.js").read_text(encoding="utf-8")
+    if "Authorization" not in api_js or "getToken" not in api_js:
+        raise SystemExit("api.js no adjunta Authorization a las llamadas protegidas")
+    print("  OK  api.js adjunta Authorization (token de sesion)")
     status, body = http("GET", "/api/hotels")
     if status != 200:
         raise SystemExit(f"GET /api/hotels => {status}")
@@ -99,12 +106,17 @@ def main() -> None:
         ("GET", f"/api/reservations/{uuid.uuid4()}", 404),
         # events de un id inexistente devuelve 200 [] (ruta abierta, sin datos)
         ("GET", f"/api/reservations/{uuid.uuid4()}/events", 200),
-        ("POST", f"/api/reservations/{uuid.uuid4()}/cancel", 404),
+        ("POST", f"/api/reservations/{uuid.uuid4()}/cancel", 401),
         ("GET", f"/api/notifications?reservation_id={uuid.uuid4()}", 200),
         ("GET", f"/api/customers/{uuid.uuid4()}", 404),
-        ("POST", "/api/customers", 422),
-        ("POST", "/api/reservations", 422),
+        ("POST", "/api/auth/register", 422),
+        ("POST", "/api/auth/login", 422),
+        ("GET", "/api/auth/me", 401),
+        ("POST", "/api/auth/logout", 401),
+        ("POST", "/api/reservations", 401),
         ("POST", "/api/hotels", 403),
+        ("GET", "/api/customers", 404),
+        ("GET", "/api/auth/validate", 404),
         ("GET", "/api/payments", 404),
     ]
     for method, path, expected in checks:

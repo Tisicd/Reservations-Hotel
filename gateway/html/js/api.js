@@ -1,3 +1,5 @@
+import { getToken } from './state.js';
+
 export const API = '/api';
 const MAX_CONCURRENT = 2;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -75,6 +77,11 @@ export async function request(method, path, options = {}) {
       const headers = {};
       if (body !== null) headers['Content-Type'] = 'application/json';
       if (key) headers['Idempotency-Key'] = key;
+      const token = getToken();
+      if (token && !path.startsWith('/auth/login')
+          && !path.startsWith('/auth/register')) {
+        headers.Authorization = `Bearer ${token}`;
+      }
 
       const started = performance.now();
       let response = null;
@@ -116,6 +123,11 @@ export async function request(method, path, options = {}) {
         key,
       };
       record(entry);
+
+      if (response.status === 401 && !path.startsWith('/auth/login')
+          && !path.startsWith('/auth/register')) {
+        window.dispatchEvent(new Event('auth:expired'));
+      }
 
       if ((response.status === 429 || response.status === 503) && attempt < retries) {
         const header = Number.parseInt(response.headers.get('Retry-After') || '', 10);

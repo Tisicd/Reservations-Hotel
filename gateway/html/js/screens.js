@@ -1,5 +1,6 @@
 import { request, uuid4, errorText, getLog } from './api.js';
-import { state, setCustomer, clearCustomer } from './state.js';
+import { state } from './state.js';
+import { logout } from './auth.js';
 import {
   h, illustration, fmtMoney, fmtDate, fmtTime, nights, nightsLabel, todayISO,
   addDays, shortCode, statusMeta, badge, isStable, flash, setLive,
@@ -351,20 +352,6 @@ function summaryBlock(title, rows) {
     h('dl', {}, rows.flatMap(([label, value]) => [h('dt', {}, label), h('dd', {}, value)])));
 }
 
-async function demoGuest() {
-  // Los IDs de la semilla no se listan por API; creamos un huésped demo
-  // temporal con email único para que el flujo funcione sin datos fijos.
-  const result = await request('POST', '/customers', {
-    body: { name: 'Huésped Demo', email: `demo-${uuid4()}@example.com` },
-  });
-  if (![200, 201].includes(result.status)) {
-    flash('error', `${errorText(result)} (request_id ${result.requestId || '—'})`);
-    return null;
-  }
-  setCustomer(result.data);
-  return result.data;
-}
-
 export async function booking(ctx) {
   document.title = 'Reservar — Reservas UCE';
   const app = document.getElementById('app');
@@ -377,6 +364,11 @@ export async function booking(ctx) {
   if (!hotelId || !roomId || error) {
     app.replaceChildren(emptyState('Reserva incompleta', error || 'Faltan datos del alojamiento.',
       [h('a', { class: 'btn', href: '#/' }, 'Volver a buscar')]));
+    return;
+  }
+  if (!state.token || !state.customer) {
+    const returnTo = (window.location.hash || '#/').replace(/^#/, '');
+    navigate('/login', { returnTo });
     return;
   }
   const signature = `${hotelId}|${roomId}|${checkIn}|${checkOut}`;
@@ -410,42 +402,12 @@ export async function booking(ctx) {
       ['Total', fmtMoney(total)],
     ]);
     const render = () => {
-      const customerPanel = state.customer
-        ? h('div', { class: 'panel' },
-          h('h2', {}, 'Huésped'),
-          h('p', {}, state.customer.name),
-          h('p', { class: 'muted small' }, state.customer.email),
-          h('button', { class: 'ghost', type: 'button', onclick: () => { clearCustomer(); mount(); } }, 'Cambiar huésped'))
-        : (() => {
-          const name = h('input', { id: 'guest-name', autocomplete: 'name', required: true });
-          const email = h('input', { id: 'guest-email', type: 'email', autocomplete: 'email', required: true });
-          const create = h('button', { class: 'btn secondary', type: 'button' }, 'Crear y continuar');
-          create.addEventListener('click', async () => {
-            if (!name.value.trim() || !email.value.trim()) { flash('error', 'Nombre y email son obligatorios.'); return; }
-            create.disabled = true;
-            const result = await request('POST', '/customers', { body: { name: name.value.trim(), email: email.value.trim() } });
-            create.disabled = false;
-            if (result.status === 201 || result.status === 200) {
-              setCustomer(result.data);
-              mount();
-            } else if (result.status === 409) {
-              flash('warn', 'Ese email ya está registrado; usa otro o el usuario de demostración.');
-            } else {
-              flash('error', `${errorText(result)} (request_id ${result.requestId || '—'})`);
-            }
-          });
-          const demo = h('button', { class: 'ghost', type: 'button', onclick: async () => {
-            const customer = await demoGuest();
-            if (customer) mount();
-          } }, 'Usar usuario de demostración');
-          return h('div', { class: 'panel' },
-            h('h2', {}, 'Huésped'),
-            h('div', { class: 'form-grid' },
-              field('guest-name', 'Nombre', name),
-              field('guest-email', 'Email', email)),
-            h('div', { class: 'actions' }, create, demo),
-            h('p', { class: 'muted small' }, 'Se crea el cliente con POST /api/customers; no se guardan datos sensibles.'));
-        })();
+      const customerPanel = h('div', { class: 'panel' },
+        h('h2', {}, 'Hu\u00e9sped'),
+        h('p', {}, state.customer.name),
+        h('p', { class: 'muted small' }, state.customer.email),
+        h('p', { class: 'muted small' }, 'Sesi\u00f3n iniciada; la reserva se hace a tu nombre.'),
+        h('button', { class: 'ghost', type: 'button', onclick: () => logout() }, 'Cerrar sesi\u00f3n'));
       const payment = h('select', { id: 'payment-sim' },
         option('ok', 'Tarjeta aprobada (simulación)'),
         option('decline', 'Tarjeta rechazada'),
@@ -634,15 +596,13 @@ export async function statusScreen(ctx) {
 export async function myReservations(ctx) {
   document.title = 'Mis reservas — Reservas UCE';
   const app = document.getElementById('app');
-  if (!state.customer) {
-    app.replaceChildren(emptyState('Aún no has reservado',
-      'Crea un huésped y reserva; después podrás ver y cancelar tus reservas aquí.',
-      [h('a', { class: 'btn', href: '#/' }, 'Buscar alojamiento')]));
+  if (!state.token || !state.customer) {
+    navigate('/login', { returnTo: '/mis-reservas' });
     return;
   }
   app.replaceChildren(h('div', { class: 'section-head' },
     h('div', {}, h('h1', {}, 'Mis reservas'), h('p', { class: 'muted small' }, state.customer.email)),
-    h('button', { class: 'ghost', type: 'button', onclick: () => { clearCustomer(); myReservations(ctx); } }, 'Cambiar usuario')));
+    h('button', { class: 'ghost', type: 'button', onclick: () => logout() }, 'Cerrar sesi\u00f3n')));
   const list = h('div', { class: 'cards' }, skeletonCards(2));
   app.appendChild(list);
   try {

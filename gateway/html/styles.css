@@ -515,3 +515,44 @@ h3 { margin: 0.8rem 0 0.4rem; }
   .skeleton { animation: none; }
   * { scroll-behavior: auto !important; }
 }
+
+.topbar-inner { flex-wrap: wrap; }
+
+.authnav {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.auth-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin: 1.5rem auto;
+  max-width: 460px;
+  padding: 1.2rem;
+}
+
+.auth-card h1 { margin: 0 0 0.3rem; }
+
+.password-wrap { position: relative; }
+
+.password-wrap input { padding-right: 5.2rem; }
+
+.password-toggle {
+  min-height: 32px;
+  padding: 0.2rem 0.5rem;
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+}

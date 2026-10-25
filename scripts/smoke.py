@@ -10,7 +10,7 @@ BASE = os.getenv("GATEWAY_URL", "http://127.0.0.1:8088").rstrip("/")
 MAX_BYTES = 150_000
 JS_FILES = [
     "/app.js", "/js/api.js", "/js/ui.js", "/js/router.js",
-    "/js/screens.js", "/js/demo.js", "/js/state.js",
+    "/js/screens.js", "/js/demo.js", "/js/state.js", "/js/auth.js",
 ]
 failures: list[str] = []
 total_bytes = 0
