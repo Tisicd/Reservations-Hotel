@@ -9,6 +9,7 @@ from app.domain.errors import (
     CustomerNotFound,
     DependencyUnavailable,
     DomainError,
+    Forbidden,
     IdempotencyKeyReused,
     IllegalTransition,
     InvalidState,
@@ -29,6 +30,7 @@ _MAP = {
     IllegalTransition: (409, "INVALID_STATE"),
     ConcurrentModification: (409, "CONCURRENT_MODIFICATION"),
     DependencyUnavailable: (503, "DEPENDENCY_UNAVAILABLE"),
+    Forbidden: (403, "FORBIDDEN"),
 }
 
 

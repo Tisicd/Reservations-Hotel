@@ -15,14 +15,17 @@ sys.path.insert(0, str(ROOT / "tests" / "invariants"))
 from checker import check_all  # noqa: E402
 
 PUBLIC_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:8088/api").rstrip("/")
-ADMIN_URL = os.getenv("GATEWAY_ADMIN_URL", "http://127.0.0.1:8081/svc").rstrip("/")
-RESERVATION_URL = os.getenv("RESERVATION_URL", PUBLIC_URL)
+ADMIN_BASE = os.getenv("GATEWAY_ADMIN_URL", "http://127.0.0.1:8081").rstrip("/")
+ADMIN_URL = f"{ADMIN_BASE}/svc"
+ADMIN_API = f"{ADMIN_BASE}/api"
+# e2e interno (setup/race) usa el listener admin: sin auth, como caos/carga.
+RESERVATION_URL = os.getenv("RESERVATION_URL", ADMIN_API)
 RESERVATION_ADMIN_URL = os.getenv("RESERVATION_ADMIN_URL", f"{ADMIN_URL}/reservation")
 AVAILABILITY_URL = os.getenv("AVAILABILITY_URL", PUBLIC_URL)
 AVAILABILITY_ADMIN_URL = os.getenv("AVAILABILITY_ADMIN_URL", f"{ADMIN_URL}/availability")
 INVENTORY_URL = os.getenv("INVENTORY_URL", f"{ADMIN_URL}/availability")
 PAYMENT_URL = os.getenv("PAYMENT_URL", f"{ADMIN_URL}/payment")
-CUSTOMER_URL = os.getenv("CUSTOMER_URL", PUBLIC_URL)
+CUSTOMER_URL = os.getenv("CUSTOMER_URL", f"{ADMIN_URL}/customer")
 HOTEL_URL = os.getenv("HOTEL_URL", PUBLIC_URL)
 HOTEL_ADMIN_URL = os.getenv("HOTEL_ADMIN_URL", f"{ADMIN_URL}/hotel")
 

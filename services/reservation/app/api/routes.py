@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Header, Response
 
 from app.application.use_cases import CreateReservationCommand, ReservationService
-from app.domain.errors import ValidationError
+from app.domain.errors import Forbidden, ReservationNotFound, ValidationError
 from app.domain.reservation import Reservation
 from app.domain.state_machine import CANCELLED, is_stable
 
@@ -51,14 +51,24 @@ def create_reservation(
     body: ReservationCreate,
     response: Response,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
     service: ReservationService = Depends(get_service),
 ) -> dict:
     if not idempotency_key:
         raise ValidationError("Idempotency-Key es obligatoria")
+    customer_id = body.customer_id
+    if x_user_id:
+        try:
+            user_id = uuid.UUID(x_user_id)
+        except (ValueError, TypeError) as exc:
+            raise Forbidden("identidad inv?lida") from exc
+        if body.customer_id != user_id:
+            raise Forbidden("customer_id no corresponde a la sesi?n")
+        customer_id = user_id
     reservation, replayed = service.create_reservation(
         idempotency_key,
         CreateReservationCommand(
-            customer_id=body.customer_id,
+            customer_id=customer_id,
             hotel_id=body.hotel_id,
             room_id=body.room_id,
             check_in=body.check_in,
@@ -115,8 +125,13 @@ def get_events(
 def cancel_reservation(
     reservation_id: uuid.UUID,
     response: Response,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
     service: ReservationService = Depends(get_service),
 ) -> dict:
+    if x_user_id:
+        existing = service.get_reservation(reservation_id)
+        if str(existing.customer_id) != x_user_id:
+            raise ReservationNotFound("reserva no encontrada")
     reservation = service.cancel_reservation(reservation_id)
     if reservation.status != CANCELLED:
         response.status_code = 202

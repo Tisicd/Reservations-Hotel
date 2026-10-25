@@ -30,6 +30,10 @@ class InvalidState(DomainError):
     pass
 
 
+class Forbidden(DomainError):
+    pass
+
+
 class ConcurrentModification(DomainError):
     pass
 

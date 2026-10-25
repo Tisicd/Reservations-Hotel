@@ -44,8 +44,12 @@ from checker import (  # noqa: E402
 import sqlalchemy as sa
 
 SEED_PATH = ROOT / "secrets" / "seed.json"
-PUBLIC_URL = os.getenv("GATEWAY_URL", "http://127.0.0.1:8088/api").rstrip("/")
-ADMIN_URL = os.getenv("GATEWAY_ADMIN_URL", "http://127.0.0.1:8081/svc").rstrip("/")
+ADMIN_BASE = os.getenv("GATEWAY_ADMIN_URL", "http://127.0.0.1:8081").rstrip("/")
+ADMIN_URL = f"{ADMIN_BASE}/svc"
+ADMIN_API = f"{ADMIN_BASE}/api"
+# Caos mide servicios por el listener admin (sin auth ni limit_*), igual que
+# e2e y carga; el listener publico reserva con Bearer.
+TRAFFIC_URL = os.getenv("CHAOS_TRAFFIC_URL", ADMIN_API)
 COMPOSE = [
     "docker", "compose",
     "-f", str(ROOT / "compose.yaml"),
@@ -474,7 +478,7 @@ class TrafficGenerator:
         while attempts <= self.max_retries:
             attempts += 1
             try:
-                r = self.client.get(f"{PUBLIC_URL}/availability", params=params)
+                r = self.client.get(f"{TRAFFIC_URL}/availability", params=params)
                 last_status = r.status_code
                 if r.status_code in HTTP_OK:
                     latency = (time.monotonic() - start) * 1000
@@ -507,7 +511,7 @@ class TrafficGenerator:
         while attempts <= self.max_retries:
             attempts += 1
             try:
-                r = self.client.post(f"{PUBLIC_URL}/reservations", json=body,
+                r = self.client.post(f"{TRAFFIC_URL}/reservations", json=body,
                                      headers=headers)
                 last_status = r.status_code
                 ok = r.status_code in HTTP_OK
@@ -595,7 +599,7 @@ class Canary:
         wall = dt.datetime.now(dt.timezone.utc).isoformat()
         try:
             r = self.client.get(
-                f"{PUBLIC_URL}/availability",
+                f"{TRAFFIC_URL}/availability",
                 params={"hotel_id": self.hotel["id"], "check_in": day.isoformat(),
                         "check_out": (day + dt.timedelta(days=1)).isoformat()},
             )
@@ -621,7 +625,7 @@ class Canary:
         start = time.monotonic()
         wall = dt.datetime.now(dt.timezone.utc).isoformat()
         try:
-            r = self.client.post(f"{PUBLIC_URL}/reservations", json=body,
+            r = self.client.post(f"{TRAFFIC_URL}/reservations", json=body,
                                  headers={"Idempotency-Key": key,
                                           "X-Request-ID": f"canary-{key}"})
             ok = r.status_code in HTTP_OK
@@ -1204,7 +1208,7 @@ def run_scenario_C(mode: str, repeat: int,
             "payment": {"method": "card", "token": "tok_demo", "simulate": "ok"},
         }
         try:
-            r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+            r = client.post(f"{TRAFFIC_URL}/reservations", json=body,
                             headers={"Idempotency-Key": key,
                                      "X-Request-ID": f"c-{key}"})
             if r.status_code in (200, 201, 202):
@@ -1349,7 +1353,7 @@ def run_scenario_D(mode: str, repeat: int,
     }
     base_ok = False
     try:
-        r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+        r = client.post(f"{TRAFFIC_URL}/reservations", json=body,
                         headers={"Idempotency-Key": key,
                                  "X-Request-ID": f"d-{key}"})
         base_ok = r.status_code in (200, 201, 202)
@@ -1371,7 +1375,7 @@ def run_scenario_D(mode: str, repeat: int,
     while time.monotonic() < deadline:
         try:
             r = client.post(
-                f"{PUBLIC_URL}/reservations", json=body,
+                f"{TRAFFIC_URL}/reservations", json=body,
                 headers={"Idempotency-Key":
                          f"chaos-d-{run_id}-rto-{uuid.uuid4().hex[:6]}",
                          "X-Request-ID": f"d-rto-{uuid.uuid4().hex[:6]}"})
@@ -1396,7 +1400,7 @@ def run_scenario_D(mode: str, repeat: int,
     t_recovered = time.monotonic() if recovered else None
 
     try:
-        client.post(f"{PUBLIC_URL}/reservations", json=body,
+        client.post(f"{TRAFFIC_URL}/reservations", json=body,
                     headers={"Idempotency-Key":
                              f"chaos-d-{run_id}-drain-{uuid.uuid4().hex[:6]}",
                              "X-Request-ID": f"d-drain-{uuid.uuid4().hex[:6]}"})
@@ -1537,7 +1541,7 @@ def run_scenario_E2(mode: str, repeat: int,
         }
         started_req = time.monotonic()
         try:
-            r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+            r = client.post(f"{TRAFFIC_URL}/reservations", json=body,
                             headers={"Idempotency-Key": key,
                                      "X-Request-ID": f"c-{key}"})
             latency = (time.monotonic() - started_req) * 1000
@@ -1724,7 +1728,7 @@ def run_scenario_S(mode: str, repeat: int,
     }
     base_ok = False
     try:
-        r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+        r = client.post(f"{TRAFFIC_URL}/reservations", json=body,
                         headers={"Idempotency-Key": key,
                                  "X-Request-ID": f"s-{key}"})
         base_ok = r.status_code in (200, 201, 202)
@@ -1745,7 +1749,7 @@ def run_scenario_S(mode: str, repeat: int,
     while time.monotonic() < deadline:
         try:
             r = client.post(
-                f"{PUBLIC_URL}/reservations", json=body,
+                f"{TRAFFIC_URL}/reservations", json=body,
                 headers={"Idempotency-Key":
                          f"chaos-s-{run_id}-w-{uuid.uuid4().hex[:6]}",
                          "X-Request-ID": f"s-w-{uuid.uuid4().hex[:6]}"})
@@ -1785,7 +1789,7 @@ def run_scenario_S(mode: str, repeat: int,
     while time.monotonic() < w_deadline:
         try:
             r = client.post(
-                f"{PUBLIC_URL}/reservations", json=body,
+                f"{TRAFFIC_URL}/reservations", json=body,
                 headers={"Idempotency-Key":
                          f"chaos-s-{run_id}-rto-{uuid.uuid4().hex[:6]}",
                          "X-Request-ID": f"s-rto-{uuid.uuid4().hex[:6]}"})
@@ -1803,7 +1807,7 @@ def run_scenario_S(mode: str, repeat: int,
         time.sleep(0.5)
 
     try:
-        client.post(f"{PUBLIC_URL}/reservations", json=body,
+        client.post(f"{TRAFFIC_URL}/reservations", json=body,
                     headers={"Idempotency-Key":
                              f"chaos-s-{run_id}-drain-{uuid.uuid4().hex[:6]}",
                              "X-Request-ID": f"s-drain-{uuid.uuid4().hex[:6]}"})
@@ -1946,7 +1950,7 @@ def run_scenario_E1(mode: str, repeat: int,
                         "simulate": simulate},
         }
         try:
-            r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+            r = client.post(f"{TRAFFIC_URL}/reservations", json=body,
                             headers={"Idempotency-Key": key,
                                      "X-Request-ID": f"e1-{key}"})
         except Exception as exc:  # noqa: BLE001
@@ -2137,7 +2141,7 @@ def _create_confirmed(client, hotel, room, customer, run_id, tag, day):
         "payment": {"method": "card", "token": "tok_demo", "simulate": "ok"},
     }
     try:
-        r = client.post(f"{PUBLIC_URL}/reservations", json=body,
+        r = client.post(f"{TRAFFIC_URL}/reservations", json=body,
                         headers={"Idempotency-Key": key,
                                  "X-Request-ID": f"e3-{key}"})
         if r.status_code in (200, 201, 202) and \
