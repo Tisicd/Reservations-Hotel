@@ -95,3 +95,28 @@ sin intervención sobre el código: build, arranque, siembra, unitarias, e2e,
 smoke, invariantes, caos completo, perf completo, reporte, backup/restore,
 imágenes y perfil prod. Las dos condiciones externas (`.env`/proyecto y el
 puerto 8080 ocupado) están declaradas y no afectan al producto.
+
+
+## Ensayo reducido F3c (autenticación)
+
+Clon nuevo, proyecto **`f3c-ensayo`**, stack principal detenido; misma
+condición que F5: `.env` copiado y `COMPOSE_PROJECT_NAME` para aislar el
+proyecto. **Pasada limpia en 6 min 47 s** (sin pasos manuales adicionales).
+
+| Comando | Duración | Resultado |
+|---|---|---|
+| `make clean-all` (pre) | 0,5 s | — |
+| `make build` | 3,3 s | 6 imágenes (caché) |
+| `make up` | 22,6 s | stack healthy, migración **0002** aplicada |
+| `make seed` | 38,8 s | datos + **cuenta demo** |
+| `make test` | 222,9 s | unitarias + invariantes |
+| `make e2e` | 62,3 s | **11 passed** (incluye auth público) |
+| `make smoke` | 34,4 s | frontend/cabeceras |
+| `make check-ui` | 5,2 s | rutas auth y Bearer |
+| `make check-docs` | 5,1 s | 68 variables |
+| `make invariants` | 5,9 s | **0** |
+| `make down` / `clean-all` | 5,2 / 0,4 s | — |
+
+No hubo fallos. La cuenta demo se creó desde `DEMO_USER_PASSWORD` del
+`.env.example`; el flujo público (registro/login/reserva/replay/cancel/logout)
+pasó en `make e2e`.
