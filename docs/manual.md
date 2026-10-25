@@ -52,6 +52,7 @@ make smoke                # frontend + cabeceras + rutas internas
 | `make test` | Pruebas de infraestructura + unitarias de los 6 servicios (detiene workers temporalmente). |
 | `make e2e` | `up-dev` + `gateway-refresh` + `seed` + `pytest tests/e2e` (incluye el flujo público del frontend). |
 | `make smoke` | HTML/JS/CSS, cabeceras de seguridad, `/api/hotels` y `/svc` no expuesto. |
+| `make check-ui` | Rutas `/api` usadas por la UI: p?blicas y no bloqueadas; sin rutas internas. |
 | `make invariants` | I1–I7 con `--grace 60`; debe dar 0 violaciones. |
 | `make check-docs` | Variables usadas por servicios/compose = documentadas. |
 | `make lint` | ruff/import-linter/contratos de capas. |
@@ -64,50 +65,63 @@ make smoke                # frontend + cabeceras + rutas internas
 | `make prune` | Elimina imágenes dangling del proyecto. |
 | `make gateway-refresh` | Recrea/reinicia el gateway para releer DNS (tras escalar). |
 
-## 4. Frontend (demo)
+## 4. Frontend (demo tipo sitio de reservas)
 
-Tras `make up && make seed`, abrir `http://127.0.0.1:8088/`.
+La UI es una SPA sin build, con **rutas por hash** (no recarga), marca
+ficticia **Reservas UCE** y solo llamadas `/api/*` públicas:
 
-1. Elegir hotel y fechas (entrada ≥ hoy, salida > entrada); **Buscar**.
-2. Elegir un cliente demo o crear uno (`POST /api/customers`).
-3. Elegir habitación y simulación de pago; **Reservar**.
-4. Ver estado, **línea de tiempo** (`/events`) y notificación.
-5. **Reenviar con la misma clave** → `200` + `Idempotent-Replayed: true`, sin duplicar.
-6. **Cancelar** (solo `CONFIRMED`).
+| Ruta | Pantalla |
+|---|---|
+| `#/` | Inicio: hero, buscador (ciudad real, fechas, huéspedes) y destinos de `GET /api/hotels` |
+| `#/buscar?...` | Resultados en tarjetas: "desde", cupo real, total, filtros (ciudad, precio, capacidad) y orden por precio |
+| `#/hotel/<id>?...` | Ficha: galería SVG generada, habitaciones, capacidad, total y "Reservar" |
+| `#/reservar?...` | Huésped (crear o demo) + pago simulado + confirmar |
+| `#/reserva/<id>` | "Procesando…": timeline de `/events`, estado y notificación |
+| `#/mis-reservas` | Reservas del `customer_id` en `sessionStorage` |
 
-Flujos de demo:
+- **Sin datos inventados:** no hay reseñas, estrellas ni amenidades; solo
+  hoteles, habitaciones, precios, capacidad y cupo reales de la API.
+- **Ilustraciones:** SVG deterministas generados con `createElementNS` a
+  partir del id; sin imágenes externas ni stock.
+- **Pago simulado:** `Tarjeta aprobada` (`ok`), `Tarjeta rechazada`
+  (`decline`), `Banco sin respuesta` (`process_then_drop_response`) y
+  `Pago lento` (`slow`); aviso de no usar datos reales.
+- **Usuario de demostración:** crea un huésped temporal con email único
+  (los IDs de la semilla no se listan por API), para reservar sin escribir
+  datos personales.
+- **Técnico:** interruptor en el pie abre un panel con el log de llamadas
+  (método, ruta, HTTP, ms, `request_id`, `Idempotent-Replayed`), timeline
+  cruda y "Reenviar la misma solicitud".
+- **Responsive:** probado a **375 px** y **1280 px**; `prefers-color-scheme`
+  para oscuro; foco visible; `aria-live` en estados; formularios con `label`.
+- **Límites:** concurrencia ≤ 2, caché de hoteles/habitaciones, backoff en
+  429/503 y reintento con la misma clave; una nueva reserva genera nueva
+  clave. `make check-ui` valida que solo se usen rutas públicas.
+
+### Tres flujos de demo
 
 | Flujo | Simulación | Final |
 |---|---|---|
 | Feliz | `ok` | `CONFIRMED` + notificación `SENT` |
-| Rechazo | `decline` | `PAYMENT_DECLINED` → `CANCELLED` |
-| Respuesta perdida | `process_then_drop_response` | `PAYMENT_UNKNOWN` → `CONFIRMED` |
+| Rechazo | `decline` | `PAYMENT_DECLINED` → `CANCELLED`, sin cobro |
+| Respuesta perdida | `process_then_drop_response` | `PAYMENT_UNKNOWN` → `CONFIRMED`, 1 cobro |
 
-### Guion de 10 pasos
+### 8 capturas para `docs/resultados/ui/`
 
-1. Abrir `http://127.0.0.1:8088/`.
-2. Elegir hotel; entrada mañana, salida pasado mañana; **Buscar**.
-3. Ver habitaciones con precio y cupo.
-4. Elegir `Cliente Demo Uno` o crear uno.
-5. Con `ok`, **Reservar**; ver estado, timeline y notificación.
-6. **Reenviar con la misma clave** (`200` + `Idempotent-Replayed`, mismo id).
-7. **Cancelar** la reserva `CONFIRMED`.
-8. Repetir con `decline` → `PAYMENT_DECLINED`/`CANCELLED`.
-9. Repetir con `process_then_drop_response` → `PAYMENT_UNKNOWN` → `CONFIRMED`.
-10. Forzar `429`/`503` (repeticiones rápidas o `docker stop availability`):
-    ver mensaje con `request_id`, espera y reintento con la misma clave; al
-    final `make invariants` ⇒ 0.
+1. `01-inicio.png` — hero, buscador y destinos.
+2. `02-resultados.png` — tarjetas con "desde", cupo y filtros.
+3. `03-ficha.png` — galería, habitaciones y total.
+4. `04-pago.png` — huésped + pago simulado + aviso.
+5. `05-procesando.png` — timeline en curso.
+6. `06-confirmada.png` — confirmada, código, notificación.
+7. `07-mis-reservas.png` — lista con insignias y cancelar.
+8. `08-modo-demo.png` — panel técnico con `HTTP 200` e
+   `Idempotent-Replayed: true`.
 
-### 5 capturas para `docs/resultados/ui/`
-
-1. Búsqueda con habitaciones, precio y cupo.
-2. Timeline `CONFIRMED` + notificación `SENT`.
-3. Reenvío con `HTTP 200` + `Idempotent-Replayed: true`.
-4. `process_then_drop_response` con `PAYMENT_UNKNOWN` → `CONFIRMED`.
-5. Error `429`/`503` visible con `request_id` y reintento acotado.
-
-Los errores 429/503 se muestran con `request_id`, espera acotada y reintento
-con la misma clave.
+Capturar cada pantalla a **375 px** y **1280 px**; el flujo
+`process_then_drop_response` debe mostrar `PAYMENT_UNKNOWN` antes de
+`CONFIRMED`. Los errores 429/503 se muestran con `request_id`, espera y
+reintento con la misma clave.
 
 ## 5. Cómo leer los reportes
 

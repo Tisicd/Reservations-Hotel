@@ -28,3 +28,20 @@ React + TypeScript + Vite: válido, pero añade etapa Node, dependencias y tiemp
   `Idempotent-Replayed: true`.
 - Polling de estado/eventos/notificaciones con backoff, ≥ 1 s, máx. 2
   solicitudes simultáneas y tope de 90 s.
+
+## Implementación F3b (2026-10-23)
+
+- SPA con **rutas por hash** (`#/`, `#/buscar`, `#/hotel/:id`,
+  `#/reservar`, `#/reserva/:id`, `#/mis-reservas`) sin recarga y sin build.
+- Pantallas tipo sitio de reservas (hero/buscador, resultados con filtros y
+  orden, ficha, pago, estado/confirmación y "mis reservas"); **sin datos
+  inventados** (sin reseñas/estrellas/amenidades).
+- Ilustraciones **SVG deterministas** generadas en el cliente; sin recursos
+  externos. Moneda `Intl.NumberFormat("es-EC")`; fechas en español.
+- Modo demo técnico oculto en el pie: log de llamadas, timeline cruda y
+  reenvío idempotente (`Idempotent-Replayed`).
+- Concurrencia ≤ 2, caché de hoteles/habitaciones, backoff 429/503 con la
+  misma clave; `sessionStorage` solo para el `customer_id`.
+- `make smoke` cubre módulos, cabeceras, inline, URLs externas y ≤ 150 kB;
+  `make check-ui` valida rutas públicas y ausencia de rutas internas.
+- Nginx sirve `/js/` y `/img/` con `gzip` para texto; CSP sin relajar.

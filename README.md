@@ -246,6 +246,7 @@ override. No se ha probado todavía contra un registry; estos son los pasos.
 | `make seed` | siembra idempotente |
 | `make test` / `make e2e` | unitarias + invariantes / flujo completo |
 | `make smoke` | frontend, cabeceras y rutas internas no expuestas |
+| `make check-ui` | rutas /api usadas por la UI y ausencia de rutas internas |
 | `make invariants` | I1–I7 (debe dar 0) |
 | `make chaos [SCEN=...]` | A, B, C, D, E1–E4, S, S2 |
 | `make perf [PERF=...]` | k6: P1, P3, P3b, P4 |

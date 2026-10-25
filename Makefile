@@ -146,6 +146,9 @@ smoke: deps ensure-images gateway-refresh
 check-docs: deps
 	$(VENV_PY) scripts/check_vars.py
 
+check-ui: deps
+	$(VENV_PY) scripts/check_ui_routes.py
+
 snapshot-customer: deps
 	cd services/customer && $(CURDIR)/$(VENV_PY) tests/contract/gen_snapshot.py
 
