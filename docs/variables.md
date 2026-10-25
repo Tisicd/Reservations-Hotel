@@ -40,6 +40,17 @@ las 6 restantes son de scripts/infra (`GATEWAY_*`, `POSTGRES_*`).
 | `DB_POOL_TIMEOUT` | No | `5` | Segundos de espera por conexión del pool |
 | `LOG_LEVEL` | No | `INFO` | Nivel de log (JSON en stdout) |
 
+## Autenticaci?n (customer-service)
+
+| Variable | Obligatoria | Default | Descripci?n |
+|---|---|---|---|
+| `SCRYPT_N` | No | `32768` | Coste scrypt (N); calibrado ~200 ms en el entorno de medida |
+| `SCRYPT_R` | No | `8` | Bloque de scrypt (r) |
+| `SCRYPT_P` | No | `1` | Paralelismo de scrypt (p) |
+| `AUTH_SESSION_TTL_SECONDS` | No | `28800` | Vida de la sesi?n (8 h) |
+| `LOGIN_MAX_FAILURES` | No | `5` | Fallos consecutivos antes del bloqueo |
+| `LOGIN_LOCK_SECONDS` | No | `300` | Duraci?n del bloqueo temporal |
+
 ## hotel-service
 
 | Variable | Obligatoria | Default | Descripción |
@@ -62,6 +73,7 @@ las 6 restantes son de scripts/infra (`GATEWAY_*`, `POSTGRES_*`).
 | `HOTEL_URL` | No | `http://127.0.0.1:8081/svc/hotel` | Base del hotel-service para la siembra |
 | `CUSTOMER_URL` | No | `http://127.0.0.1:8081/svc/customer` | Base del customer-service para la siembra |
 | `AVAILABILITY_URL` | No | `http://127.0.0.1:8081/svc/availability` | Base del availability-service para cargar inventario |
+| `DEMO_USER_PASSWORD` | No (solo dev) | (vac?o) | Contrase?a de la cuenta demo `demo@reservas-uce.test`; el seed la lee de `.env` si no est? en el entorno. Sin valor no crea la cuenta |
 
 La siembra es idempotente: hoteles/habitaciones usan UUID deterministas
 (`uuid5`), el inventario se fija con `PUT` y los ids de clientes se guardan en

@@ -15,6 +15,7 @@ Cada ADR es breve: **contexto → decisión → alternativas → consecuencias**
 | [0009](0009-stack-y-dependencias.md) | Stack y dependencias justificadas | Aceptado |
 | [0010](0010-fuente-de-verdad-datos-maestros.md) | Fuente de verdad de datos maestros y validación de hotel/habitación | Aceptado |
 | [0011](0011-g1-rabbitmq-y-enmiendas.md) | G1: sin RabbitMQ; enmiendas de CANCELLING/429/admin | Aceptado |
+| [0012](0012-autenticacion-basica.md) | Autenticación básica: cuenta=cliente, scrypt, sesiones opacas y `auth_request` | Aceptado |
 
 Estados: *Propuesto → Aceptado → (Reemplazado por ADR-xxxx)*. ADR 0001-0010 **aceptados** al cerrar la compuerta G0 (2026-10-19).
 

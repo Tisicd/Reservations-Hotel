@@ -38,3 +38,20 @@
 Los contratos (`05-contratos-api.md`), los invariantes I1–I7 y la saga con
 `advance(reservation_id)` (ADR-0003) se mantienen: la evolución es de
 infraestructura y operación, no de la lógica de negocio.
+
+## Autenticaci?n (F3c)
+
+- **Token en cookie `HttpOnly`/`Secure` + TLS y CSRF** en lugar de
+  `sessionStorage` + Bearer (hoy demo local). Mantener el hash SHA-256 del
+  token en BD y la revocaci?n.
+- **Verificaci?n de email, recuperaci?n de contrase?a, MFA y roles**; hoy no
+  existen. A?adir anti-bot/captcha al registro y l?mites por cuenta adem?s de
+  por IP.
+- **Sesiones distribuidas** si hay varias r?plicas de customer: Redis/almac?n
+  compartido o sesiones en BD con limpieza programada (hoy se limpian en el
+  login).
+- **Auditor?a de seguridad**: registrar eventos de login/bloqueo **sin**
+  secretos, alertas por fuerza bruta y rotaci?n de par?metros scrypt.
+- **Propiedad de reservas** en GET (`/reservations/{id}`, `/events`, lista):
+  Hito D pendiente; solo la cancelaci?n comprueba due?o.
+

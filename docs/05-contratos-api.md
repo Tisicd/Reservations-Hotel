@@ -136,3 +136,33 @@ Tipos de evento: `reservation.confirmed`, `reservation.cancelled`.
 `reservation → customer, hotel, availability, payment` y `reservation-worker → notification`. Ningún otro servicio llama a otro. Cualquier servicio → BD ajena: **prohibido**.
 
 `hotel` es la fuente de verdad de hoteles, habitaciones y precios (ADR-0010); `reservation` la consulta por HTTP para validar antes de persistir. `availability` gestiona exclusivamente inventario, disponibilidad y holds, y no accede a datos maestros.
+
+## 10. Autenticaci?n (F3c)
+
+Cuenta = cliente en `customer-service`. Las cuentas y sesiones **no** exponen
+contrase?as ni tokens almacenados (solo hashes).
+
+| M?todo y ruta | Cuerpo ? Respuesta |
+|---|---|
+| `POST /auth/register` | `{name,email,password}` ? `201 {id,name,email}` ? `409 EMAIL_EXISTS` ? `422 WEAK_PASSWORD` |
+| `POST /auth/login` | `{email,password}` ? `200 {access_token, token_type:"Bearer", expires_in, customer}` ? `401 INVALID_CREDENTIALS` gen?rico (usuario inexistente, clave err?nea o bloqueo) |
+| `POST /auth/logout` (Bearer) | `204` idempotente; borra la sesi?n |
+| `GET /auth/me` (Bearer) | `200 {id,name,email}` ? `401` |
+| `GET /auth/validate` (interno) | `204` + `X-User-Id` si el Bearer es v?lido ? `401` |
+
+- `Cache-Control: no-store` en login/register.
+- Contrase?a: 10?128 caracteres, distinta del email/nombre y fuera de una lista
+  de claves comunes; hash `scrypt$N$r$p$sal$hash` con par?metros por entorno.
+- Sesi?n: token opaco de 32 bytes; en BD solo SHA-256; TTL 8 h; logout revoca.
+- **P?blico:** `/api/auth/register`, `/api/auth/login`, `/api/auth/logout`,
+  `/api/auth/me`. **`/api/customers*` queda cerrado** (404); `POST /customers`
+  y `GET /customers/{id}` son internos (semilla/pruebas).
+- **Protecci?n:** `POST /api/reservations` y `POST /api/reservations/{id}/cancel`
+  exigen `Authorization: Bearer`; sin token/ inv?lido ? `401`. El gateway
+  inyecta `X-User-Id` y **borra** cualquier valor del cliente en el resto de
+  rutas. En `POST /reservations`, si `X-User-Id` llega debe coincidir con
+  `customer_id` (si no, `403 FORBIDDEN`); la cancelaci?n comprueba due?o
+  (`404` si no). Los listeners admin/dev no inyectan la cabecera.
+- **L?mites:** `auth_login` 20 r/m (burst 10), `auth_register` 10 r/m
+  (burst 5), 429; bloqueo tras 5 fallos durante 300 s.
+

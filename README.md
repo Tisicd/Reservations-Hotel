@@ -86,7 +86,8 @@ cd reservas-platform
 cp .env.example .env
 make build && make up && make seed
 make smoke && make e2e && make invariants
-# frontend: http://127.0.0.1:8088/
+# frontend: http://127.0.0.1:8088/ (reservar exige cuenta)
+# demo dev: demo@reservas-uce.test / DEMO_USER_PASSWORD del .env
 ```
 
 Requiere Docker Desktop (WSL2) con **≥ 6 GB** de RAM, GNU Make, git y Python

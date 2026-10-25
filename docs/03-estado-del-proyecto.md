@@ -10,6 +10,7 @@
 | F1 Flujo crítico | ✔ | availability, payment, reservation, customer, hotel, chequeador de invariantes, e2e. Tag `f1` |
 | F2 Integración | ✔ consolidada | notification + outbox/relay, gateway, availability x3. G1 formal: ver `fases/F2-integracion.md` |
 | F3/F3b Frontend | **Implementado** (2026-10-23) | SPA hash con inicio/resultados/ficha/pago/estado/mis reservas y modo demo: `gateway/html/`, `make smoke`, `make check-ui`, `test_public_flow.py`; guion en `manual.md` |
+| F3c Autenticación | **Implementado** (2026-10-24) | Cuentas = clientes, scrypt, sesiones opacas, `auth_request`, login/registro UI; reservar/cancelar exigen Bearer: ADR-0012, `seguridad.md` |
 | F4 Fallos, carga y reportes | **Cerrado** (F4a/b/c) | Caos A–S2 y carga P1/P3/P3b/P4: `resultados/REPORTE.md`, `fallos.md`; P2/P5 recortados |
 | F5 Entrega (informe, manual, costos) | **Documentación y ensayo** (2026-10-23); pendientes persona 1/3/10/14 | `manual.md`, `seguridad.md`, `produccion.md`, `swarm.md`, `informe/INFORME.md`, `resultados/ensayo-desde-cero.md` |
 | F6 Defensa (28–30 oct, por confirmar) | Pendiente | `fases/F6-defensa.md` |

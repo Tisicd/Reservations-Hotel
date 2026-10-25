@@ -77,3 +77,25 @@ duraciones está en [`resultados/ensayo-desde-cero.md`](resultados/ensayo-desde-
   `manual.md`).
 - Tag propuesto `v1.0-entrega` y `git archive` verificado con gitleaks
   (sin `secrets/`, `backups/`, `.env` ni `.venv`); la persona decide publicarlo.
+
+
+## Autenticación (F3c)
+
+- Cuentas = clientes; scrypt (N=32768, ~200 ms), sesiones opacas con hash
+  SHA-256, TTL 8 h, bloqueo temporal y rate limit; Bearer en `sessionStorage`.
+- Reservar/cancelar requieren sesión por `auth_request`; el gateway inyecta
+  `X-User-Id` y lo vacía en el resto. `/api/customers*` cerrado.
+- **Fuera de alcance / pendiente:** verificación de email, recuperación de
+  contraseña, MFA, roles, anti-bot, TLS y cookie `HttpOnly`+CSRF (ADR-0012).
+  El registro aún puede enumerar correos por `409`. Los `GET` de reservas
+  siguen públicos por UUID (Hito D no implementado); cancelar sí comprueba
+  dueño.
+- **Cuenta demo:** `demo@reservas-uce.test` con `DEMO_USER_PASSWORD` (solo
+  dev; `.env.example`); no hay valor en el perfil de producción.
+- Límites: login 20 r/m burst 10; registro 10 r/m burst 5; 429.
+- Evidencia: `docs/adr/0012`, `docs/seguridad.md`, `tests/customer/...`,
+  `tests/e2e/test_public_flow.py`.
+## Etiqueta propuesta (F3c)
+
+`v1.1.0-entrega` (autenticacion basica). `v1.0.1-entrega` queda como respaldo.
+No se fusiona a `main` sin aprobacion.

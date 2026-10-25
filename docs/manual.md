@@ -74,10 +74,12 @@ ficticia **Reservas UCE** y solo llamadas `/api/*` públicas:
 |---|---|
 | `#/` | Inicio: hero, buscador (ciudad real, fechas, huéspedes) y destinos de `GET /api/hotels` |
 | `#/buscar?...` | Resultados en tarjetas: "desde", cupo real, total, filtros (ciudad, precio, capacidad) y orden por precio |
+| `#/login?returnTo=...` | Inicio de sesión |
+| `#/registro?returnTo=...` | Crear cuenta |
 | `#/hotel/<id>?...` | Ficha: galería SVG generada, habitaciones, capacidad, total y "Reservar" |
-| `#/reservar?...` | Huésped (crear o demo) + pago simulado + confirmar |
+| `#/reservar?...` | Requiere sesión: resumen + pago simulado + confirmar |
 | `#/reserva/<id>` | "Procesando…": timeline de `/events`, estado y notificación |
-| `#/mis-reservas` | Reservas del `customer_id` en `sessionStorage` |
+| `#/mis-reservas` | Reservas de la cuenta con sesión |
 
 - **Sin datos inventados:** no hay reseñas, estrellas ni amenidades; solo
   hoteles, habitaciones, precios, capacidad y cupo reales de la API.
@@ -86,9 +88,10 @@ ficticia **Reservas UCE** y solo llamadas `/api/*` públicas:
 - **Pago simulado:** `Tarjeta aprobada` (`ok`), `Tarjeta rechazada`
   (`decline`), `Banco sin respuesta` (`process_then_drop_response`) y
   `Pago lento` (`slow`); aviso de no usar datos reales.
-- **Usuario de demostración:** crea un huésped temporal con email único
-  (los IDs de la semilla no se listan por API), para reservar sin escribir
-  datos personales.
+- **Autenticación:** reservar exige cuenta; `#/login` y `#/registro` con
+  errores claros, bloqueo temporal y límites. El token va en
+  `sessionStorage` y `Authorization: Bearer`. Cuenta demo (solo dev):
+  `demo@reservas-uce.test` con `DEMO_USER_PASSWORD` del `.env`.
 - **Técnico:** interruptor en el pie abre un panel con el log de llamadas
   (método, ruta, HTTP, ms, `request_id`, `Idempotent-Replayed`), timeline
   cruda y "Reenviar la misma solicitud".
@@ -106,7 +109,7 @@ ficticia **Reservas UCE** y solo llamadas `/api/*` públicas:
 | Rechazo | `decline` | `PAYMENT_DECLINED` → `CANCELLED`, sin cobro |
 | Respuesta perdida | `process_then_drop_response` | `PAYMENT_UNKNOWN` → `CONFIRMED`, 1 cobro |
 
-### 8 capturas para `docs/resultados/ui/`
+### 10 capturas para `docs/resultados/ui/`
 
 1. `01-inicio.png` — hero, buscador y destinos.
 2. `02-resultados.png` — tarjetas con "desde", cupo y filtros.
@@ -117,6 +120,8 @@ ficticia **Reservas UCE** y solo llamadas `/api/*` públicas:
 7. `07-mis-reservas.png` — lista con insignias y cancelar.
 8. `08-modo-demo.png` — panel técnico con `HTTP 200` e
    `Idempotent-Replayed: true`.
+9. `09-login.png` — inicio de sesión y error genérico.
+10. `10-registro.png` — creación de cuenta y política de contraseña.
 
 Capturar cada pantalla a **375 px** y **1280 px**; el flujo
 `process_then_drop_response` debe mostrar `PAYMENT_UNKNOWN` antes de

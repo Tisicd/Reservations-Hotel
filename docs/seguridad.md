@@ -133,3 +133,45 @@ hoteles/habitaciones. Evidencia: `test_public_flow.py` comprueba 403/404 para
   44 CVEs o fijar una base con soporte.
 - Añadir autenticación, TLS, rotación de secretos, WAF/CDN, límites de CPU y
   escaneo en CI (ver `produccion.md` y `RELEASE.md`).
+
+## Autenticación (F3c)
+
+- **Cuentas en `customer-service`** (`password_hash` + bloqueo + sesiones). No
+  hay servicio de identidad nuevo.
+- **Contraseñas:** `hashlib.scrypt` con sal de 16 B y formato
+  `scrypt$N$r$p$sal$hash`; `hmac.compare_digest`; parámetros por entorno
+  (`SCRYPT_N/R/P`, por defecto 32768/8/1, ~200 ms medidos). Semáforo para
+  limitar el coste concurrente y hash ficticio para usuarios inexistentes
+  (mismo tiempo).
+- **Sesiones opacas:** token de 32 B; en BD solo **SHA-256**; `expires_at`
+  (8 h); logout borra; sin JWT ni clave de firma.
+- **Transporte:** `Authorization: Bearer`; la SPA guarda el token en
+  `sessionStorage` (no en localStorage); no se registra en logs ni en el panel
+  demo. En producción: cookie `HttpOnly`/`Secure` + TLS + CSRF (ADR-0012).
+- **Gateway:** `auth_request` contra `/_auth` → `GET /auth/validate` interno
+  (204 + `X-User-Id` o 401). `X-User-Id` se inyecta **solo** en
+  `POST /api/reservations` y `POST …/cancel`; en el resto de rutas públicas se
+  vacía para impedir falsificación. `/api/customers*` cerrado (404).
+  `/auth/validate` no es público.
+- **Fuerza bruta / enumeración:** login genérico idéntico para usuario
+  inexistente, clave errónea o bloqueo; 5 fallos → 300 s de bloqueo; rate limit
+  `auth_login` 20 r/m (burst 10) y `auth_register` 10 r/m (burst 5) → 429.
+  El registro aún devuelve `409` si el correo existe (enumeración residual,
+  documentada).
+- **Sesión robada / XSS:** hash en BD, expiración y revocación; CSP
+  `default-src 'self'`, sin `innerHTML` con datos de la API, JS externo. El
+  token en `sessionStorage` es accesible ante XSS: mitigado, no eliminado.
+- **CSRF:** el token va en `Authorization`, no en cookie; no hay CSRF en el
+  esquema actual. Al pasar a cookie `HttpOnly` hará falta token CSRF.
+- **Abuso de registro:** rate limit y política de contraseñas; **no** hay
+  verificación de email ni anti-bot/captcha.
+- **Demo:** `admin`/dev sigue sin auth para e2e/caos/carga; la cuenta
+  `demo@reservas-uce.test` se crea solo si `DEMO_USER_PASSWORD` está definida
+  (dev) y no hay valor por defecto en el perfil de producción.
+- **No resuelto:** TLS, MFA, recuperación de contraseña, verificación de
+  email, roles, anti-bot, revocación global, y propiedad de los `GET` de
+  reservas (Hito D no implementado; solo cancelar comprueba dueño).
+
+Evidencia: ADR-0012, `services/customer/app/security.py`,
+`auth_service.py`, migración `0002`, `gateway/conf.d/default.conf`,
+`tests/customer/tests/...`, `tests/e2e/test_public_flow.py`.
