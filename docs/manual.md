@@ -128,6 +128,20 @@ Capturar cada pantalla a **375 px** y **1280 px**; el flujo
 `CONFIRMED`. Los errores 429/503 se muestran con `request_id`, espera y
 reintento con la misma clave.
 
+### Acceso y reserva (F3c)
+
+1. Explorar (inicio, resultados y ficha) **no** requiere sesión.
+2. Al pulsar **Reservar** sin sesión, la UI redirige a
+   `#/login?returnTo=...`; tras autenticarse vuelve al paso de reserva
+   conservando la selección.
+3. Crear cuenta en `#/registro` (mínimo 10 caracteres) o usar la **cuenta demo
+   definida en `.env`** (no hay valores en la documentación de Release).
+4. Errores mostrados: login genérico `401`, correo ya registrado `409`,
+   contraseña débil `422`, límite `429` con espera y bloqueo temporal. El
+   mensaje incluye `request_id`.
+5. **Cerrar sesión** desde la cabecera borra el token de `sessionStorage` y
+   llama a `POST /api/auth/logout`.
+
 ## 5. Cómo leer los reportes
 
 - `docs/resultados/REPORTE.md`: consolidado (entorno, caos, carga, hallazgos;

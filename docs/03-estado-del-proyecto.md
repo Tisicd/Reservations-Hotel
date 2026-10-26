@@ -42,3 +42,9 @@ I1 sin sobreventa · I2 una reserva por intención y cadena de estados legal · 
 | Cambiar un servicio | `04-arquitectura.md` §4–§7, su ADR, su sección en `05-contratos-api.md` |
 | Docker / imágenes | `prompts/T-docker-imagenes.md`, `imagenes.md`, `variables.md` |
 | Decisiones | `adr/README.md` |
+
+## 6. Versiones entregadas
+
+- `v1.0-entrega`: F5 (microservicios, caos, carga, reporte, manual y ensayo).
+- `v1.0.1-entrega`: F3b (UI tipo sitio de reservas y correcci?n del usuario demo).
+- `v1.1.0-entrega`: F3c (autenticaci?n b?sica; reservar/cancelar con sesi?n).

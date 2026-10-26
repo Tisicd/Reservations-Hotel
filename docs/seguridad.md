@@ -175,3 +175,25 @@ hoteles/habitaciones. Evidencia: `test_public_flow.py` comprueba 403/404 para
 Evidencia: ADR-0012, `services/customer/app/security.py`,
 `auth_service.py`, migración `0002`, `gateway/conf.d/default.conf`,
 `tests/customer/tests/...`, `tests/e2e/test_public_flow.py`.
+
+
+## Rutas públicas finales (tag `v1.1.0-entrega`)
+
+| Método | Ruta | Auth | Notas |
+|---|---|---|---|
+| GET | `/`, `/app.js`, `/styles.css`, `/js/*`, `/img/*` | — | estáticos con CSP; solo lectura |
+| GET | `/healthz` | — | liveness del gateway |
+| GET | `/api/hotels`, `/api/hotels/{id}`, `/api/rooms/{id}` | — | explorar |
+| GET | `/api/availability` | — | buscar disponibilidad |
+| GET | `/api/reservations`, `/api/reservations/{id}`, `/api/reservations/{id}/events` | — | lectura por UUID; propiedad pendiente (Hito D) |
+| GET | `/api/notifications?reservation_id=` | — | lectura |
+| GET | `/api/auth/me` | **Bearer** | cuenta actual |
+| POST | `/api/auth/register`, `/api/auth/login` | — | límites `auth_register`/`auth_login`; 429 |
+| POST | `/api/auth/logout` | **Bearer** | idempotente |
+| POST | `/api/reservations` | **Bearer** | `X-User-Id` inyectado por el gateway |
+| POST | `/api/reservations/{id}/cancel` | **Bearer** | comprueba dueño (404) |
+| — | `/api/customers*`, `/api/auth/validate`, `/svc/*`, holds, pagos, inventario | **cerrado** | 403/404; `/auth/validate` solo interno |
+
+El listener admin `:8081` es **loopback de desarrollo** (sin auth) para
+e2e/caos/carga; no se publica en `up-prod`. `X-User-Id` se borra en el admin y
+en el resto de rutas públicas.
