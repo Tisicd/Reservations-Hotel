@@ -2,6 +2,8 @@
 
 Caso 2 · Universidad Central del Ecuador · Programación distribuida
 
+![Resultados de la plataforma de reservas](docs/assets/02-resultados.png)
+
 **Estado:** F5 (documentación y entrega). Tag `v1.0-entrega`; informe en
 [`docs/informe/INFORME.md`](docs/informe/INFORME.md) y limitaciones honestas
 en [`docs/RELEASE.md`](docs/RELEASE.md).
